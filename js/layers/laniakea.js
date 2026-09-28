@@ -143,6 +143,17 @@
       this.flowLan = lan.build(gfx);
       this.flowOther = other.build(gfx);
 
+      // Famous nearby galaxies, bright points at their true places.
+      const fam = [];
+      for (const g of CA.GALAXIES) {
+        const p = frames.radec(g[1], g[2], g[3]);
+        const c = g[4] === 'elliptical' ? [1.0, 0.82, 0.62] : g[4] === 'starburst' ? [1.0, 0.7, 0.62] : [0.78, 0.86, 1.0];
+        fam.push(p[0], p[1], p[2], c[0], c[1], c[2], 0, 0);
+        const zc = Math.log10(g[3] * U.MLY);
+        this.label(g[0], p, [22.75, 23.1, Math.min(24.7, zc + 1.3), Math.min(25.1, zc + 1.7)], { pri: 2, sub: g[5] || CA.fmt.sig(g[3], 2) + ' million ly' });
+      }
+      this.famous = new CA.SpriteSet(gfx, new Float32Array(fam));
+
       // Labels.
       for (const k in nodes) {
         const n = nodes[k];
@@ -170,6 +181,8 @@
         gfx.drawLines(this.flowLan, cam, Object.assign({ u_gain: op * fl }, o));
       }
       gfx.drawPoints(this.galaxies, cam, { u_gain: op * 0.9, u_constFlux: 2, u_sizeMul: dpr });
+      const fF = CA.fadeIn([22.75, 23.1, 24.7, 25.1], z);
+      if (fF > 0) gfx.drawSprites(this.famous, cam, { u_fixedPx: 5 * dpr, u_mode: 2, u_gain: op * fF * 2.2 });
     }
   }
 

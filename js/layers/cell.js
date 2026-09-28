@@ -295,8 +295,8 @@
       // focal distance glow, so looking through the whole cell never washes out.
       const base = { u_minPx: 0.6 * dpr, u_maxPx: 6 * dpr, u_slabDepth: cam.d, u_slabWidth: cam.d * 0.75 };
       const inN = CA.smoothstep(-5.2, -6.2, z);
-      gfx.drawPoints(this.mem, cam, Object.assign({ u_gain: op * 0.32 * (1 - 0.7 * inN) }, base));
-      gfx.drawPoints(this.org, cam, Object.assign({ u_gain: op * 0.55 * (1 - 0.6 * inN) }, base));
+      gfx.drawPoints(this.mem, cam, Object.assign({ u_gain: op * 0.25 * (1 - 0.7 * inN) }, base));
+      gfx.drawPoints(this.org, cam, Object.assign({ u_gain: op * 0.5 * (1 - 0.6 * inN) }, base));
       gfx.drawLines(this.lines, cam, { u_width: 1.1 * dpr, u_gain: op * 0.8 * (1 - 0.8 * inN) });
       gfx.drawPoints(this.nuc, cam, Object.assign({ u_gain: op * 0.16 * (1 - 0.35 * inN) }, base));
     }

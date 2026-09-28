@@ -90,7 +90,7 @@
     bell(t) {
       const ctx = this.ctx;
       const scale = [0, 3, 5, 7, 10, 12, 15, 17];
-      const base = 440 * Math.pow(2, (CA.clamp(this.z, 7, 30) < 18 ? 12 : 5) / 12);
+      const base = 440 * Math.pow(2, (this.z < -1 ? 17 : this.z < 18 ? 12 : 5) / 12);
       const f = base * Math.pow(2, scale[Math.floor(Math.random() * scale.length)] / 12);
       const o = ctx.createOscillator();
       o.type = 'sine';
@@ -130,16 +130,17 @@
       this.z = z;
       if (!this.ctx || !this.on) return;
       const ctx = this.ctx, now = ctx.currentTime;
-      const t = CA.clamp((z - 7) / 23, 0, 1);
-      const root = 55 * Math.pow(2, (-5 * t) / 12);
+      // Outward the drone darkens and sinks; inward it rises and opens up.
+      const t = CA.clamp((z - 7) / 23, 0, 1), tin = CA.clamp((7 - z) / 42, 0, 1);
+      const root = 55 * Math.pow(2, (-5 * t + 7 * tin) / 12);
       for (const v of this.voices) v.o.frequency.setTargetAtTime(root * v.r, now, 2.5);
-      this.filter.frequency.setTargetAtTime(1400 - 1000 * t, now, 1.5);
+      this.filter.frequency.setTargetAtTime(1400 - 1000 * t + 2600 * tin, now, 1.5);
       const s = CA.clamp(Math.abs(zSpeed) / 3, 0, 1);
       this.windGain.gain.setTargetAtTime(0.02 + 0.55 * s * s, now, 0.25);
       this.windFilter.frequency.setTargetAtTime(300 + 1400 * s + 400 * (1 - t), now, 0.3);
       if (now > this.nextBell) {
         this.bell(now + 0.05);
-        const busy = z > 15 && z < 23 ? 0.6 : 1;
+        const busy = (z > 15 && z < 23) || z < -1 ? 0.6 : 1;
         this.nextBell = now + (2.5 + Math.random() * 5) * busy;
       }
     }

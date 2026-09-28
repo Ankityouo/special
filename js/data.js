@@ -190,6 +190,14 @@
   // Stick figures joining the stars above (by name). Seen from the Sun they are the
   // familiar shapes; seen from anywhere else they come apart, because their stars
   // lie at very different distances.
+  // Star positions by name, for the stick figures below: [RA h, Dec deg, distance ly].
+  CA.starByName = function (name) {
+    if (!CA._starIndex) {
+      CA._starIndex = {};
+      for (const s of CA.BRIGHT_STARS) CA._starIndex[s[0]] = [s[1], s[2], s[4]];
+    }
+    return CA._starIndex[name];
+  };
   CA.CONSTELLATIONS = [
     ['Orion', [['Betelgeuse', 'Meissa', 'Bellatrix'], ['Betelgeuse', 'Alnitak', 'Alnilam', 'Mintaka', 'Bellatrix'], ['Alnitak', 'Saiph'], ['Mintaka', 'Rigel']]],
     ['Ursa Major', [['Alkaid', 'Mizar', 'Alioth', 'Megrez', 'Phecda', 'Merak', 'Dubhe', 'Megrez']]],
@@ -406,7 +414,7 @@
     },
     {
       id: 'earth', z: 7.42, title: 'Earth', addr: 'Earth',
-      text: 'Home to everyone you have ever met. 12,742 km across, lit exactly as the Sun lights it at this moment.',
+      text: 'Home to everyone you have ever met. 12,742 km across, lit exactly as the Sun lights it at this moment, and ringed by more than 10,000 working satellites.',
     },
     {
       id: 'moon', z: 9.05, title: 'Earth and Moon',

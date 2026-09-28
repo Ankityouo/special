@@ -67,6 +67,35 @@
         made++;
       }
       this.stars = new CA.PointCloud(gfx, new Float32Array(out));
+
+      // Constellation figures as great-circle arcs, and their names.
+      const lb = new CA.LineBuilder();
+      for (const [name, strokes] of CA.CONSTELLATIONS) {
+        let sum = [0, 0, 0], cnt = 0;
+        for (const st of strokes) {
+          for (let i = 0; i + 1 < st.length; i++) {
+            const a = CA.starByName(st[i]), b = CA.starByName(st[i + 1]);
+            if (!a || !b) continue;
+            const pa = frames.radec(a[0], a[1], 1), pb = frames.radec(b[0], b[1], 1);
+            const pts = [];
+            for (let k = 0; k <= 8; k++) pts.push(CA.v3.norm(CA.v3.lerp(pa, pb, k / 8)));
+            // Leave a small gap at each star so the lines do not cover it.
+            const trim = 0.012 / Math.max(CA.v3.dist(pa, pb), 0.024);
+            const q0 = CA.v3.norm(CA.v3.lerp(pa, pb, trim)), q1 = CA.v3.norm(CA.v3.lerp(pa, pb, 1 - trim));
+            pts[0] = q0; pts[8] = q1;
+            lb.polyline(pts, () => [0.5, 0.66, 1.0, 0.22], false);
+            sum = CA.v3.add(sum, pa); cnt++;
+          }
+        }
+        // Names hide below the horizon and in daylight.
+        const hide = (p) => {
+          const W = CA.world;
+          if ((W.daylight || 0) > 0.5) return true;
+          return !!W.horizon && CA.v3.dot(p, W.horizon.up) < -W.horizon.dip + 0.03;
+        };
+        if (cnt) this.label(name, CA.v3.norm(sum), [-1.2, -0.7, 6.1, 6.6], { pri: 2, cls: 'region', hide });
+      }
+      this.figures = lb.build(gfx);
       this.ready = true;
     }
 
@@ -91,6 +120,9 @@
         u_minPx: 0.55 * dpr, u_maxPx: 5.0 * dpr, u_sizeK: 1.6 * dpr, u_spikeK: 0.8,
       });
       this.stars.draw();
+      // Stick figures: over your head, and around Earth, fading once we leave it.
+      const fig = CA.fadeIn([-1.2, -0.7, 9.4, 10.2], G.z) * (1 - 0.6 * day);
+      if (fig > 0 && CA.showGuides) gfx.drawLines(this.figures, cam, { u_width: 1.0 * dpr, u_gain: op * fig });
     }
   }
 

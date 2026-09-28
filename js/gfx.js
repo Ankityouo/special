@@ -303,6 +303,13 @@ void main(){
     return;
   } else if (u_mode == 2) {     // glow
     a = (1.0 / (1.0 + d2 * 60.0) + 0.25 * exp(-d2 * 8.0)) * edge;
+  } else if (u_mode == 4) {     // star glare: halo, diffraction spikes and corona rays
+    float r = sqrt(d2);
+    float ang = atan(v_uv.y, v_uv.x);
+    float halo = 0.04 / (0.004 + d2) * 0.02 + 0.25 * exp(-d2 * 14.0);
+    float sp = pow(abs(cos(ang * 2.0)), 180.0) * exp(-r * 2.6) + 0.45 * pow(abs(cos(ang * 2.0 + 1.5708)), 260.0) * exp(-r * 4.2);
+    float rays = (0.55 + 0.45 * snoise(vec3(ang * 6.0, r * 3.0 - u_time * 0.04, v_param))) * exp(-r * 7.0) * 0.5;
+    a = (halo + sp * 0.5 + rays) * edge;
   } else if (u_mode == 3) {     // turbulent nebula
     vec3 q = vec3(v_uv * 1.7, v_param * 17.0);
     float n = fbm(q + vec3(0.0, 0.0, u_time * 0.01), 5);
@@ -691,13 +698,16 @@ vec3 aurora(vec3 ro, vec3 rd, float tMax, vec3 L, float jit){
     float lon = atan(dot(qe, e2), dot(qe, e1));
     float fold = snoise(vec3(lon * 6.0, colat * 30.0, u_time * 0.035));
     float curtain = smoothstep(-0.2, 0.7, fold) * (0.45 + 0.55 * smoothstep(-0.4, 0.6, snoise(vec3(lon * 23.0, u_time * 0.06, sl * 5.0))));
-    float rays = 0.55 + 0.45 * snoise(vec3(lon * 190.0, colat * 12.0, u_time * 0.25));
+    // From orbit the oval reads as a soft, gently folded band.
+    curtain = mix(curtain, 0.3 + 0.45 * smoothstep(-0.6, 0.8, fold), smoothstep(0.05, 0.8, u_camAlt));
+    float rayAmp = mix(0.45, 0.12, smoothstep(0.02, 0.5, u_camAlt));   // fine rays blur out from orbit
+    float rays = 1.0 - rayAmp + rayAmp * snoise(vec3(lon * 190.0, colat * 12.0, u_time * 0.25));
     float h = r - 1.0;
     float green = exp(-pow((h - 0.019) / 0.007, 2.0)) + 0.35 * exp(-pow((h - 0.03) / 0.01, 2.0));
     float red = exp(-pow((h - 0.036) / 0.008, 2.0));
     acc += (vec3(0.15, 1.0, 0.42) * green + vec3(0.85, 0.18, 0.5) * red * 0.55) * band * curtain * rays * night * ds;
   }
-  return acc * 55.0;
+  return acc * 55.0 * mix(1.0, 0.55, smoothstep(0.1, 1.0, u_camAlt));
 }
 
 void main(){
@@ -758,6 +768,10 @@ void main(){
   vec2 det = groundDetail(pl.xz, fp);
   float coastK = smoothstep(5000.0, 500.0, fp);
   water = mix(water, smoothstep(0.38, 0.62, water + det.x * 0.9), coastK);
+  // Whatever the coarse map says, you are standing on land.
+  float keepW = smoothstep(900.0, 2600.0, length(pl.xz));
+  float forcedLand = water * (1.0 - keepW);
+  water *= keepW;
   float land = 1.0 - water;
   float waveK = smoothstep(60.0, 4.0, fp);
   float waveH = waveK * (snoise2(pl.xz / 41.0 + u_time * vec2(0.021, 0.008)) * 0.35 + snoise2(pl.xz / 13.0 - u_time * vec2(0.013, 0.03)) * 0.12);
@@ -783,6 +797,7 @@ void main(){
     float diff = clamp((NdL + 0.02) / 1.02, 0.0, 1.0);
     vec3 alb = day * (1.0 + det.x * land) * mix(vec3(1.0), vec3(1.04, 1.0, 0.92), clamp(det.x * 3.0, -1.0, 1.0) * land * 0.5 + 0.5);
     alb = mix(alb, alb * vec3(0.85, 0.95, 1.1), water * 0.4);
+    alb = mix(alb, vec3(0.13, 0.125, 0.105) * (1.0 + det.x), forcedLand);
     vec3 sunC = sunTrans(1.0006, NdL0) * u_sunI;
     vec3 surf = alb * diff * sunC * (1.0 - 0.6 * shadow);
     // Skylight keeps shadows and dusk from going pitch black.
@@ -1111,7 +1126,7 @@ void main(){
   SH.compositeFS = `
 in vec2 v_uv;
 uniform sampler2D u_scene, u_bloom;
-uniform float u_bloomStrength, u_exposure, u_time, u_grain, u_vignette, u_fade;
+uniform float u_bloomStrength, u_exposure, u_time, u_grain, u_vignette, u_fade, u_zoomBlur;
 uniform vec2 u_res;
 out vec4 o;
 ${COMMON}
@@ -1122,6 +1137,19 @@ vec3 aces(vec3 x){
 vec3 toSRGB(vec3 c){ return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
 void main(){
   vec3 c = texture(u_scene, v_uv).rgb;
+  // Warp streaks while flying fast between scales.
+  if (u_zoomBlur > 0.002) {
+    vec2 dir = v_uv - 0.5;
+    float j = hash12(gl_FragCoord.xy) * 0.5;
+    vec3 acc = c; float ws = 1.0;
+    for (int i = 1; i < 10; i++) {
+      float s = (float(i) + j) / 10.0;
+      float w = 1.0 - s * 0.7;
+      acc += texture(u_scene, v_uv - dir * s * u_zoomBlur * 0.09).rgb * w;
+      ws += w;
+    }
+    c = acc / ws;
+  }
   vec3 b = texture(u_bloom, v_uv).rgb;
   c += b * u_bloomStrength;
   c *= u_exposure;
@@ -1540,6 +1568,7 @@ void main(){
       this.grain = 0.012;
       this.vignette = 0.45;
       this.fade = 1;
+      this.zoomBlur = 0;
     }
     tex(w, h, depth) {
       const gl = this.gfx.gl;
@@ -1638,7 +1667,7 @@ void main(){
       g.use(P.composite, {
         u_scene: 0, u_bloom: 1, u_bloomStrength: this.bloomStrength / Math.max(1, this.mips.length - 1),
         u_exposure: this.exposure, u_time: g.time, u_grain: this.grain, u_vignette: this.vignette,
-        u_res: [g.canvas.width, g.canvas.height], u_fade: this.fade,
+        u_res: [g.canvas.width, g.canvas.height], u_fade: this.fade, u_zoomBlur: this.zoomBlur,
       });
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.scene.tex);
