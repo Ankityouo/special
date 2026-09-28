@@ -195,11 +195,17 @@ body.intro-open .left { opacity: 0; pointer-events: none; }
 .fallback code { display: block; margin-top: 18px; font: 400 11px/1.5 var(--mono); color: var(--faint); white-space: pre-wrap; }
 
 body.bare .top, body.bare .left, body.bare .readout, body.bare .ruler, body.bare .scrim { display: none; }
+/* Text off: story, address, scale readout and ruler fade away; the scene gets the whole screen. */
+.readout, .ruler, .scrim.bottom { transition: opacity 0.45s ease, visibility 0.45s; }
+body.no-text .left, body.no-text .readout, body.no-text .ruler, body.no-text .scrim.bottom { opacity: 0; visibility: hidden; pointer-events: none; }
+body.no-text .left { transition: opacity 0.45s ease, visibility 0.45s; }
+body.no-text .address, body.no-text .story .home, body.no-text .track { pointer-events: none; }
 
 /* ---------- small screens */
 @media (max-width: 720px) {
   .ctl span { display: none; }
-  .ctl { padding: 8px; }
+  .ctl { padding: 7px; }
+  .controls { flex-wrap: nowrap; gap: 2px; }
   .brand .live { display: none; }
   .ruler { display: none; }
   .left { width: auto; right: var(--gutter); gap: 14px; }
@@ -218,8 +224,6 @@ body.bare .top, body.bare .left, body.bare .readout, body.bare .ruler, body.bare
 }
 @media (max-width: 400px) {
   .brand h1 { letter-spacing: 0.22em; font-size: 11.5px; }
-  .controls { flex-wrap: nowrap; gap: 2px; }
-  .ctl { padding: 7px; }
   #btn-full { display: none; }
 }
 @media (max-height: 560px) and (min-width: 721px) {
@@ -255,6 +259,10 @@ body.bare .top, body.bare .left, body.bare .readout, body.bare .ruler, body.bare
     <button class="ctl" id="btn-labels" type="button" aria-pressed="true">
       <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="3.5" cy="8" r="1.7" fill="currentColor" stroke="none"/><path d="M7 5.5h7M7 8h5M7 10.5h6"/></svg>
       <span>Labels</span>
+    </button>
+    <button class="ctl" id="btn-text" type="button" aria-pressed="true" title="Show or hide the story, address and scale (T)">
+      <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3.5 3.5h9M8 3.5v9.5"/></svg>
+      <span>Text</span>
     </button>
     <button class="ctl" id="btn-sound" type="button" aria-pressed="false">
       <svg class="i-off" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 6h2.5L8.5 3v10L5 10H2.5z" fill="currentColor" stroke="none"/><path d="M11 6l3.5 4M14.5 6L11 10"/></svg>

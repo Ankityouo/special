@@ -453,8 +453,8 @@ void main(){
   else col = sc;
   // Airglow: a faint rim on the night side keeps the silhouette readable.
   float limbH = length(ro + rd * tc) - 1.0;
-  float airglow = exp(-pow((limbH - 0.012) / 0.006, 2.0)) * smoothstep(0.15, -0.2, dot(normalize(ro + rd * tc), L));
-  if (!hitP) col += vec3(0.25, 0.55, 0.45) * airglow * 0.35;
+  float airglow = exp(-pow((limbH - 0.008) / 0.011, 2.0)) * smoothstep(0.15, -0.2, dot(normalize(ro + rd * tc), L));
+  if (!hitP) col += vec3(0.22, 0.42, 0.4) * airglow * 0.07;
 
   vec3 hitW = hitP ? pc : ro + rd * tc;
   vec4 clip = u_viewProj * vec4(hitW, 1.0);

@@ -42,8 +42,8 @@
   const earthPitch = clamp(home.lat - 7, -70, 70) * DEG;
   const S = {
     z: CH[0].z + 0.45, zT: CH[0].z, prevZ: CH[0].z,
-    yaw: 0.35, pitch: earthPitch, vYaw: 0, vPitch: 0,
-    zSpeed: 0, mode: 'intro', dragging: false,
+    yaw: 0.15, pitch: earthPitch, vYaw: 0, vPitch: 0,
+    zSpeed: 0, mode: 'intro', dragging: false, text: true,
     shift: 0, fade: 0,
   };
 
@@ -168,12 +168,12 @@
     J.on = true;
     S.mode = 'journey';
     const cur = chapterAt(S.z);
-    if (Math.abs(CH[cur].z - S.z) < 0.25 && cur < CH.length - 1) {
-      J.phase = 'dwell'; J.i = cur; J.t = Math.max(0, dwellFor(CH[cur]) - 3.5);
-    } else if (S.z > CH[CH.length - 1].z - 0.2) {
+    if (S.z > CH[CH.length - 1].z - 0.2) {
       goHome();
       return;
-    } else travelTo(Math.min(cur + (S.z > CH[cur].z ? 1 : 0), CH.length - 1));
+    }
+    if (Math.abs(CH[cur].z - S.z) < 0.25) travelTo(cur);
+    else travelTo(Math.min(cur + (S.z > CH[cur].z ? 1 : 0), CH.length - 1));
     syncButtons();
   }
   function pauseJourney() {
@@ -293,6 +293,7 @@
       case 'ArrowLeft': e.preventDefault(); userAct(); S.vYaw = 0.035; break;
       case 'ArrowRight': e.preventDefault(); userAct(); S.vYaw = -0.035; break;
       case 'l': case 'L': toggleLabels(); break;
+      case 't': case 'T': toggleText(); break;
       case 'm': case 'M': toggleSound(); break;
       case 'f': case 'F': toggleFull(); break;
       case 'h': case 'H': document.body.classList.toggle('bare'); break;
@@ -433,19 +434,34 @@
   }
 
   // Buttons.
-  const btn = { journey: $('btn-journey'), labels: $('btn-labels'), sound: $('btn-sound'), full: $('btn-full') };
+  const btn = { journey: $('btn-journey'), labels: $('btn-labels'), text: $('btn-text'), sound: $('btn-sound'), full: $('btn-full') };
+  const PREFS = 'cosmic-address:prefs';
+  function savePrefs() {
+    try { localStorage.setItem(PREFS, JSON.stringify({ text: S.text, labels: labels.enabled })); } catch (e) { /* storage unavailable */ }
+  }
+  function loadPrefs() {
+    try { return JSON.parse(localStorage.getItem(PREFS) || '{}') || {}; } catch (e) { return {}; }
+  }
   function syncButtons() {
     btn.journey.setAttribute('aria-pressed', String(J.on));
     btn.journey.querySelector('span').textContent = J.on ? 'Pause' : 'Journey';
     btn.journey.classList.toggle('playing', J.on);
     btn.labels.setAttribute('aria-pressed', String(labels.enabled));
+    btn.text.setAttribute('aria-pressed', String(S.text));
     btn.sound.setAttribute('aria-pressed', String(score.on));
   }
-  function toggleLabels() {
-    labels.enabled = !labels.enabled;
-    document.body.classList.toggle('no-labels', !labels.enabled);
+  function setLabels(on) {
+    labels.enabled = on;
+    document.body.classList.toggle('no-labels', !on);
     syncButtons();
   }
+  function setText(on) {
+    S.text = on;
+    document.body.classList.toggle('no-text', !on);
+    syncButtons();
+  }
+  function toggleLabels() { setLabels(!labels.enabled); savePrefs(); }
+  function toggleText() { setText(!S.text); savePrefs(); }
   async function toggleSound() {
     await score.setOn(!score.on);
     syncButtons();
@@ -459,6 +475,7 @@
   }
   btn.journey.addEventListener('click', () => { if (S.mode === 'intro') { closeIntro(true); return; } if (J.on) pauseJourney(); else startJourney(); });
   btn.labels.addEventListener('click', toggleLabels);
+  btn.text.addEventListener('click', toggleText);
   btn.sound.addEventListener('click', toggleSound);
   btn.full.addEventListener('click', toggleFull);
   if (!document.documentElement.requestFullscreen) btn.full.hidden = true;
@@ -515,7 +532,7 @@
         const damp = Math.exp(-dt * 5);
         S.vYaw *= damp; S.vPitch *= damp;
       }
-      if (S.mode === 'intro' && !reduceMotion) S.yaw += dt * 0.012;
+      if (S.mode === 'intro' && !reduceMotion) S.yaw += dt * 0.012 * Math.cos(gfx.time * 0.06);
     }
     S.zSpeed = (S.z - S.prevZ) / dt;
     S.prevZ = S.z;
@@ -559,6 +576,9 @@
     updateUI(now);
     score.update(S.z, S.zSpeed);
   }
+  const prefs = loadPrefs();
+  if (prefs.text === false) setText(false);
+  if (prefs.labels === false) setLabels(false);
   syncButtons();
 
   // Deep link: #milkyway, #laniakea, … opens directly at that scale.

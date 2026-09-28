@@ -27,8 +27,10 @@ python3 tools/build.py
 | Guided journey | **Journey** button, `Space` | Journey button |
 | Jump to a scale | Click a line of your address or a dot on the ruler, keys `1`–`9`, `0` | Tap an address line |
 | Return to Earth | **Return home**, `Home` | Return home |
-| Labels / sound / full screen | `L` / `M` / `F` | Buttons |
-| Hide the interface | `H` | — |
+| Labels / text / sound / full screen | `L` / `T` / `M` / `F` | Buttons |
+| Hide the whole interface | `H` | — |
+
+**Text** hides the story, your address and the scale readout so the scene has the whole screen. Labels and text settings are remembered in your browser.
 
 Deep links open at a scale, for example `index.html#milkyway`. The ids are `earth`, `moon`, `inner`, `planets`, `helio`, `oort`, `neighbors`, `orion`, `milkyway`, `localgroup`, `virgo`, `laniakea`, `web`, `observable` and `beyond`.
 
