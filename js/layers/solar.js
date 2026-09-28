@@ -193,8 +193,8 @@
         const near = 1 - CA.smoothstep(12.5, 15.5, z);
         gfx.drawSprites(this.sunGlow, cam, { u_fixedPx: (30 + 26 * near) * dpr, u_mode: 2, u_gain: (1.1 + 1.2 * near) * sunF });
         // A lens's view of the Sun: spikes and a ragged corona, strongest up close.
-        const glare = CA.fadeIn([-1.2, -0.6, 14.5, 16.0], z) * sunF;
-        if (glare > 0) gfx.drawSprites(this.sunGlare, cam, { u_fixedPx: (150 + 170 * near) * dpr, u_mode: 4, u_gain: 0.6 * glare });
+        const glare = CA.fadeIn([-1.2, -0.6, 14.5, 16.0], z) * sunF * (1 - 0.55 * CA.smoothstep(11.5, 14.5, z));
+        if (glare > 0) gfx.drawSprites(this.sunGlare, cam, { u_fixedPx: (90 + 230 * near) * dpr, u_mode: 4, u_gain: 0.6 * glare });
         gfx.drawImpostor(gfx.p.sun, Object.assign(gfx.camUniforms(cam), {
           u_center: [0, 0, 0], u_radius: 0.00465047, u_full: 0, u_intensity: 60, u_opacity: sunF,
         }));

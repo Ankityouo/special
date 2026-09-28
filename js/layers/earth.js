@@ -28,11 +28,13 @@
         ? gfx.loadTexture(T[key], opts).catch(() => gfx.solidTexture(fb, opts.gray))
         : Promise.resolve(gfx.solidTexture(fb, opts.gray)));
       let tex = null;
+      // Low-end devices get half-size maps: a quarter of the GPU memory.
+      const maxSize = CA.device.tier === 0 ? 2048 : 16384;
       Promise.all([
-        load('day', { srgb: true }, [40, 70, 130, 255]),
-        load('lights', { gray: true }, [0]),
-        load('clouds', { gray: true }, [0]),
-        load('water', { gray: true }, [255]),
+        load('day', { srgb: true, maxSize }, [40, 70, 130, 255]),
+        load('lights', { gray: true, maxSize }, [0]),
+        load('clouds', { gray: true, maxSize }, [0]),
+        load('water', { gray: true, maxSize }, [255]),
       ]).then((t) => { tex = t; });
       while (!tex) yield 0;
       this.tex = tex;

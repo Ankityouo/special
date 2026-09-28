@@ -66,9 +66,6 @@
     const n = [-Math.cos(a), -Math.sin(a), 0];
     return { c, t, n };
   }
-  // Rotation matrix (rows) mapping local frame (x, y, z) onto world vectors.
-  const mat = (X, Y, Z) => [X, Y, Z];
-  const apply = (M, p) => [M[0][0] * p[0] + M[1][0] * p[1] + M[2][0] * p[2], M[0][1] * p[0] + M[1][1] * p[1] + M[2][1] * p[2], M[0][2] * p[0] + M[1][2] * p[1] + M[2][2] * p[2]];
   const perp = (t) => v3.norm(v3.cross(t, Math.abs(t[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]));
   // Orientation that takes local unit vector a to world unit vector b, rolled by r about b.
   function orientTo(a, b, roll) {
