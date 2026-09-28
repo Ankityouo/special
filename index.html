@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cosmic Address</title>
+<meta name="description" content="A seamless zoom from your spot on Earth to the edge of the observable universe, rendered live in your browser.">
+<meta name="theme-color" content="#04060b">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Jost:wght@300;400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&display=swap">
+<style>
+:root {
+  color-scheme: dark;
+  --void: #04060b;
+  --ink: #e8ecf4;
+  --mist: #9aa4bb;
+  --faint: #4d5773;
+  --hair: rgba(170, 190, 230, 0.2);
+  --beacon: #8fd0ff;
+  --beacon-ink: #03101c;
+  --spec: #d2b4ff;
+  --display: "Jost", "Futura", "Century Gothic", "Avenir Next", "Trebuchet MS", sans-serif;
+  --serif: "Newsreader", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --gutter: clamp(16px, 2.6vw, 36px);
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--void);
+  color: var(--ink);
+  font: 400 16px/1.5 var(--serif);
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+#cosmos { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; outline: none; }
+#cosmos.drag { cursor: grabbing; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 1.5px solid var(--beacon); outline-offset: 3px; }
+
+/* ---------- scrims keep type legible over bright regions */
+.scrim { position: fixed; left: 0; right: 0; pointer-events: none; }
+.scrim.bottom { bottom: 0; height: 46vh; background: linear-gradient(to top, rgba(4, 6, 11, 0.78), rgba(4, 6, 11, 0.35) 45%, rgba(4, 6, 11, 0)); }
+.scrim.top { top: 0; height: 120px; background: linear-gradient(to bottom, rgba(4, 6, 11, 0.6), rgba(4, 6, 11, 0)); }
+
+/* ---------- top bar */
+.top {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 3;
+  padding: calc(var(--gutter) * 0.8 + var(--safe-t)) var(--gutter) 0;
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
+  pointer-events: none;
+}
+.brand { display: flex; gap: 12px; align-items: flex-start; pointer-events: auto; }
+.brand .mark { width: 9px; height: 9px; margin-top: 4px; border-radius: 50%; background: var(--beacon); box-shadow: 0 0 10px 2px rgba(143, 208, 255, 0.55); flex: none; }
+.brand h1 { margin: 0; font: 500 12.5px/1.35 var(--display); letter-spacing: 0.32em; text-transform: uppercase; }
+.brand .live { margin: 3px 0 0; font: 400 10.5px/1.4 var(--mono); color: var(--mist); letter-spacing: 0.02em; }
+.controls { display: flex; gap: 4px; pointer-events: auto; flex-wrap: wrap; justify-content: flex-end; }
+.ctl {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(4, 6, 11, 0.35); border: 1px solid transparent; border-radius: 3px;
+  padding: 7px 11px; cursor: pointer;
+  font: 500 11px/1 var(--display); letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink);
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
+}
+.ctl:hover { border-color: var(--hair); background: rgba(4, 6, 11, 0.6); }
+.ctl svg { width: 16px; height: 16px; flex: none; }
+.ctl[aria-pressed="true"] { color: var(--beacon); }
+.ctl .i-pause, .ctl.playing .i-play { display: none; }
+.ctl.playing .i-pause { display: block; }
+#btn-sound .i-off { display: block; } #btn-sound .i-on { display: none; }
+#btn-sound[aria-pressed="true"] .i-off { display: none; } #btn-sound[aria-pressed="true"] .i-on { display: block; }
+
+/* ---------- story + address (bottom left) */
+.left {
+  position: fixed; left: var(--gutter); bottom: calc(var(--gutter) + var(--safe-b));
+  width: min(440px, calc(100vw - 2 * var(--gutter) - 240px));
+  display: flex; flex-direction: column; gap: 26px;
+  pointer-events: none;
+}
+.story { transition: opacity 0.26s ease, transform 0.26s ease; }
+.story.swap { opacity: 0; transform: translateY(6px); }
+.eyebrow { margin: 0 0 8px; font: 500 10.5px/1.3 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--mist); }
+.eyebrow.spec { color: var(--spec); }
+.story h2 {
+  margin: 0 0 10px; font: 300 clamp(26px, 3.2vw, 38px)/1.08 var(--display);
+  letter-spacing: 0.1em; text-transform: uppercase; text-wrap: balance;
+}
+.story p.text { margin: 0; font: 400 clamp(16px, 1.35vw, 18.5px)/1.5 var(--serif); color: rgba(232, 236, 244, 0.9); max-width: 36ch; text-wrap: pretty; }
+.story .home {
+  margin-top: 16px; pointer-events: auto;
+  display: inline-flex; align-items: center; gap: 10px;
+  background: var(--beacon); color: var(--beacon-ink); border: 0; border-radius: 3px; padding: 11px 18px; cursor: pointer;
+  font: 500 12px/1 var(--display); letter-spacing: 0.18em; text-transform: uppercase;
+}
+.address { pointer-events: auto; }
+.address .head { margin: 0 0 8px; font: 500 10.5px/1.3 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--faint); }
+.address ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.address li { transition: opacity 0.6s ease, transform 0.6s ease, max-height 0.6s ease; max-height: 30px; overflow: hidden; }
+.address li.pending { opacity: 0; transform: translateX(-8px); max-height: 0; pointer-events: none; }
+.address button {
+  all: unset; cursor: pointer; display: flex; align-items: baseline; gap: 10px;
+  font: 400 15px/1.55 var(--display); letter-spacing: 0.03em; color: var(--mist);
+}
+.address button::before { content: ""; width: 14px; height: 1px; background: var(--faint); align-self: center; transition: width 0.3s, background 0.3s; }
+.address button:hover { color: var(--ink); }
+.address button:focus-visible { outline: 1.5px solid var(--beacon); outline-offset: 2px; }
+.address .where { font: italic 400 13px/1 var(--serif); color: var(--faint); letter-spacing: 0; }
+.address li.current button { color: var(--beacon); }
+.address li.current button::before { width: 24px; background: var(--beacon); }
+
+/* ---------- scale readout (bottom right) */
+.readout {
+  position: fixed; right: var(--gutter); bottom: calc(var(--gutter) + var(--safe-b));
+  text-align: right; pointer-events: none;
+}
+.pow { font: 300 clamp(48px, 5.6vw, 76px)/0.95 var(--display); letter-spacing: 0.01em; font-variant-numeric: tabular-nums; }
+.pow sup { font-size: 0.46em; vertical-align: top; position: relative; top: 0.02em; margin-left: 0.03em; letter-spacing: 0.02em; }
+.pow .unit { font-size: 0.26em; color: var(--mist); margin-left: 0.4em; letter-spacing: 0.12em; }
+.readout #human { margin: 10px 0 0; font: 500 11.5px/1.4 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; font-variant-numeric: tabular-nums; }
+.readout #light { margin: 2px 0 0; font: italic 400 14px/1.4 var(--serif); color: var(--mist); }
+
+/* ---------- ruler (right edge) */
+.ruler { position: fixed; right: calc(var(--gutter) + 6px); top: calc(50% - 40px); transform: translateY(-50%); height: min(40vh, 380px); width: 40px; }
+.track { position: absolute; inset: 0; cursor: ns-resize; touch-action: none; }
+.track::before { content: ""; position: absolute; right: 8px; top: 0; bottom: 0; width: 1px; background: var(--hair); }
+.tick { position: absolute; right: 8px; width: 6px; height: 1px; background: var(--faint); }
+.tick.major { width: 12px; background: var(--mist); }
+.tick.major::after { content: attr(data-label); position: absolute; right: 18px; top: -7px; font: 400 10px/1 var(--mono); color: var(--mist); white-space: nowrap; }
+.stop {
+  position: absolute; right: 5px; width: 7px; height: 7px; margin-bottom: -3px; padding: 0;
+  border-radius: 50%; border: 1px solid var(--mist); background: var(--void); cursor: pointer;
+}
+.stop:hover { background: var(--ink); }
+.knob { position: absolute; right: 0; width: 26px; height: 2px; margin-bottom: -1px; background: var(--beacon); box-shadow: 0 0 10px rgba(143, 208, 255, 0.8); pointer-events: none; }
+
+/* ---------- labels in space */
+#labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+.lbl { position: absolute; left: 0; top: 0; visibility: hidden; will-change: transform, opacity; color: var(--ink); }
+.lbl .dot { position: absolute; left: -2.5px; top: -2.5px; width: 5px; height: 5px; border-radius: 50%; background: currentColor; box-shadow: 0 0 6px currentColor; opacity: 0.9; }
+.lbl .txt { position: absolute; left: var(--off, 10px); top: -8px; white-space: nowrap; text-shadow: 0 0 8px #000, 0 0 3px #000; }
+.lbl.flip .txt { left: auto; right: var(--off, 10px); text-align: right; }
+.lbl b { display: block; font: 500 11.5px/1.3 var(--mono); letter-spacing: 0.03em; }
+.lbl .sub { display: block; font: italic 400 12.5px/1.25 var(--serif); color: var(--mist); }
+.lbl.you { color: var(--beacon); }
+.lbl.you .dot { width: 7px; height: 7px; left: -3.5px; top: -3.5px; }
+.lbl.you .dot::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 1px solid currentColor; animation: ping 2.4s ease-out infinite; }
+.lbl.region .dot, .lbl.ring .dot { display: none; }
+.lbl.region .txt { left: 0; top: 0; transform: translate(-50%, -50%); text-align: center; }
+.lbl.region b { font: 400 12px/1.3 var(--display); letter-spacing: 0.3em; text-transform: uppercase; color: rgba(232, 236, 244, 0.86); }
+.lbl.ring b { font: 400 10px/1 var(--mono); color: var(--mist); }
+.lbl.ring .txt { left: 6px; top: -5px; }
+.lbl.spec { color: var(--spec); }
+.lbl.spec b { font-style: italic; }
+.lbl.star b, .lbl.neb b { font-weight: 400; }
+.lbl.craft { color: #cfe6ff; }
+body.no-labels #labels { display: none; }
+@keyframes ping { from { transform: scale(0.5); opacity: 0.9; } to { transform: scale(2.2); opacity: 0; } }
+
+/* ---------- intro */
+.intro {
+  position: fixed; inset: 0; z-index: 2; display: flex; align-items: center;
+  padding: calc(var(--gutter) + var(--safe-t) + 40px) var(--gutter) calc(var(--gutter) + var(--safe-b));
+  background: linear-gradient(90deg, rgba(4, 6, 11, 0.9) 0%, rgba(4, 6, 11, 0.62) 36%, rgba(4, 6, 11, 0) 64%);
+  transition: opacity 0.7s ease;
+}
+.intro.gone { opacity: 0; pointer-events: none; }
+.intro .inner { max-width: 520px; padding-left: clamp(0px, 3vw, 40px); }
+.intro h2 { margin: 0 0 18px; font: 300 clamp(40px, 6vw, 76px)/0.98 var(--display); letter-spacing: 0.06em; text-transform: uppercase; text-wrap: balance; }
+.intro .lede { margin: 0 0 30px; font: 400 clamp(17px, 1.6vw, 21px)/1.5 var(--serif); color: rgba(232, 236, 244, 0.92); max-width: 34ch; }
+.cta { display: flex; gap: 12px; flex-wrap: wrap; }
+.cta button {
+  border-radius: 3px; padding: 14px 22px; cursor: pointer;
+  font: 500 12px/1 var(--display); letter-spacing: 0.18em; text-transform: uppercase;
+}
+.cta .primary { background: var(--beacon); color: var(--beacon-ink); border: 1px solid var(--beacon); box-shadow: 0 0 24px rgba(143, 208, 255, 0.25); }
+.cta .primary:hover { background: #b4e0ff; }
+.cta .ghost { background: transparent; color: var(--ink); border: 1px solid rgba(232, 236, 244, 0.35); }
+.cta .ghost:hover { border-color: var(--ink); }
+.intro .hint { margin: 22px 0 0; font: 400 11px/1.6 var(--mono); color: var(--mist); letter-spacing: 0.03em; }
+.intro .loading { margin: 6px 0 0; font: 400 11px/1.6 var(--mono); color: var(--faint); }
+body.intro-open .left { opacity: 0; pointer-events: none; }
+.left { transition: opacity 0.8s ease 0.2s; }
+
+/* ---------- fallback */
+.fallback { position: fixed; inset: 0; z-index: 5; display: grid; place-content: center; padding: var(--gutter); text-align: center; background: var(--void); }
+.fallback h2 { margin: 0 0 10px; font: 300 30px/1.2 var(--display); letter-spacing: 0.08em; text-transform: uppercase; }
+.fallback p { margin: 0 auto; max-width: 44ch; color: var(--mist); }
+.fallback code { display: block; margin-top: 18px; font: 400 11px/1.5 var(--mono); color: var(--faint); white-space: pre-wrap; }
+
+body.bare .top, body.bare .left, body.bare .readout, body.bare .ruler, body.bare .scrim { display: none; }
+
+/* ---------- small screens */
+@media (max-width: 720px) {
+  .ctl span { display: none; }
+  .ctl { padding: 8px; }
+  .brand .live { display: none; }
+  .ruler { display: none; }
+  .left { width: auto; right: var(--gutter); gap: 14px; }
+  .story p.text { max-width: none; font-size: 15.5px; }
+  .story h2 { font-size: 24px; margin-bottom: 6px; }
+  .address li:not(.current) { display: none; }
+  .address .head { display: none; }
+  .readout { top: calc(64px + var(--safe-t)); bottom: auto; }
+  .pow { font-size: 40px; }
+  .readout #light { display: none; }
+  .readout #human { margin-top: 6px; font-size: 10px; }
+  .intro { align-items: flex-end; background: linear-gradient(0deg, rgba(4, 6, 11, 0.94) 0%, rgba(4, 6, 11, 0.7) 45%, rgba(4, 6, 11, 0) 80%); }
+  .intro .inner { padding-left: 0; }
+  .intro .lede { font-size: 16.5px; margin-bottom: 22px; }
+  .cta button { padding: 13px 16px; }
+}
+@media (max-width: 400px) {
+  .brand h1 { letter-spacing: 0.22em; font-size: 11.5px; }
+  .controls { flex-wrap: nowrap; gap: 2px; }
+  .ctl { padding: 7px; }
+  #btn-full { display: none; }
+}
+@media (max-height: 560px) and (min-width: 721px) {
+  .address { display: none; }
+  .ruler { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .story, .address li, .intro, .left { transition: none; }
+  .lbl.you .dot::after { animation: none; }
+}
+</style>
+</head>
+<body>
+<canvas id="cosmos" aria-label="An interactive 3D map from Earth to the edge of the observable universe"></canvas>
+<div class="scrim top"></div>
+<div class="scrim bottom"></div>
+<div id="labels" aria-hidden="true"></div>
+
+<header class="top">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"></span>
+    <div>
+      <h1>Cosmic Address</h1>
+      <p class="live" id="live">Live · Sun, Moon and planets as of now</p>
+    </div>
+  </div>
+  <div class="controls">
+    <button class="ctl" id="btn-journey" type="button" aria-pressed="false">
+      <svg class="i-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.8v10.4L13 8z" fill="currentColor"/></svg>
+      <svg class="i-pause" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3h2.4v10H4.5zM9.1 3h2.4v10H9.1z" fill="currentColor"/></svg>
+      <span>Journey</span>
+    </button>
+    <button class="ctl" id="btn-labels" type="button" aria-pressed="true">
+      <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="3.5" cy="8" r="1.7" fill="currentColor" stroke="none"/><path d="M7 5.5h7M7 8h5M7 10.5h6"/></svg>
+      <span>Labels</span>
+    </button>
+    <button class="ctl" id="btn-sound" type="button" aria-pressed="false">
+      <svg class="i-off" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 6h2.5L8.5 3v10L5 10H2.5z" fill="currentColor" stroke="none"/><path d="M11 6l3.5 4M14.5 6L11 10"/></svg>
+      <svg class="i-on" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 6h2.5L8.5 3v10L5 10H2.5z" fill="currentColor" stroke="none"/><path d="M10.8 5.6a3.4 3.4 0 010 4.8M12.6 3.8a6 6 0 010 8.4"/></svg>
+      <span>Sound</span>
+    </button>
+    <button class="ctl" id="btn-full" type="button">
+      <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg>
+      <span>Full screen</span>
+    </button>
+  </div>
+</header>
+
+<div class="left">
+  <section class="story" id="story" aria-live="polite">
+    <p class="eyebrow" id="ch-kicker">Scale 1 of 15</p>
+    <h2 id="ch-title">Earth</h2>
+    <p class="text" id="ch-text">Home to everyone you have ever met.</p>
+    <button class="home" id="btn-home" type="button" hidden>
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="4" fill="currentColor"/></svg>
+      Return home
+    </button>
+  </section>
+  <nav class="address" aria-label="Your cosmic address">
+    <p class="head">Your cosmic address</p>
+    <ol id="addr"></ol>
+  </nav>
+</div>
+
+<div class="readout" aria-live="off">
+  <div class="pow"><span>10</span><sup id="pow-exp">7</sup><span class="unit">m</span></div>
+  <p id="human">12,700 km across</p>
+  <p id="light">light crosses this view in 0.04 seconds</p>
+</div>
+
+<nav class="ruler" aria-label="Scale">
+  <div class="track" id="ruler-track"><div class="knob" id="ruler-knob"></div></div>
+</nav>
+
+<div class="intro" id="intro">
+  <div class="inner">
+    <p class="eyebrow">An interactive map of scale</p>
+    <h2>Cosmic Address</h2>
+    <p class="lede">Letters find you by street, city and country. This is the rest of your address, from your place on Earth to the edge of everything we can see.</p>
+    <div class="cta">
+      <button class="primary" id="btn-begin" type="button">Begin the journey</button>
+      <button class="ghost" id="btn-explore" type="button">Explore on my own</button>
+    </div>
+    <p class="hint">Scroll or pinch to zoom · drag to look around · space to pause</p>
+    <p class="loading" id="loading">Building the universe · <span id="load-pct">0</span>%</p>
+  </div>
+</div>
+
+<div class="fallback" id="fallback" hidden>
+  <div>
+    <h2>This journey needs WebGL 2</h2>
+    <p>Try a recent version of Chrome, Edge, Firefox or Safari, and make sure hardware acceleration is turned on.</p>
+    <code id="fallback-detail"></code>
+  </div>
+</div>
+<noscript><div class="fallback"><div><h2>Cosmic Address needs JavaScript</h2><p>Turn on JavaScript to take the journey.</p></div></div></noscript>
+
+<!-- build:scripts -->
+<script src="assets/textures.js"></script>
+<script src="js/core.js"></script>
+<script src="js/data.js"></script>
+<script src="js/gfx.js"></script>
+<script src="js/scene.js"></script>
+<script src="js/layers/sky.js"></script>
+<script src="js/layers/earth.js"></script>
+<script src="js/layers/solar.js"></script>
+<script src="js/layers/stars.js"></script>
+<script src="js/layers/galaxy.js"></script>
+<script src="js/layers/localgroup.js"></script>
+<script src="js/layers/web.js"></script>
+<script src="js/layers/laniakea.js"></script>
+<script src="js/layers/universe.js"></script>
+<script src="js/layers/beyond.js"></script>
+<script src="js/labels.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/app.js"></script>
+<!-- /build:scripts -->
+</body>
+</html>
