@@ -16,10 +16,10 @@
 
   class Sink {
     constructor(cap) { this.a = new Float32Array(cap * 8); this.n = 0; this.cap = cap; }
-    push(x, y, z, r, g, b, s) {
+    push(x, y, z, r, g, b, s, w) {
       if (this.n >= this.cap) return;
       const o = this.n * 8, a = this.a;
-      a[o] = x; a[o + 1] = y; a[o + 2] = z; a[o + 3] = r; a[o + 4] = g; a[o + 5] = b; a[o + 6] = 0; a[o + 7] = s;
+      a[o] = x; a[o + 1] = y; a[o + 2] = z; a[o + 3] = r; a[o + 4] = g; a[o + 5] = b; a[o + 6] = w || 0; a[o + 7] = s;
       this.n++;
     }
     data() { return this.a.subarray(0, this.n * 8); }

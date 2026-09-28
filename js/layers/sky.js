@@ -9,11 +9,12 @@
 
   class SkyLayer extends CA.Layer {
     constructor() {
-      super({ name: 'sky', unit: 1, fade: [-1e9, -1e9, 16.5, 17.9] });
+      super({ name: 'sky', unit: 1, fade: [-1.7, -1.0, 16.5, 17.9] });
       this.skyCam = null;
     }
 
     *build(gfx) {
+      yield* gfx.whenReady('skyBake', 'skyDraw', 'skyStars');
       const gl = gfx.gl;
       const size = Math.min(1024, gl.getParameter(gl.MAX_CUBE_MAP_TEXTURE_SIZE));
       this.cube = gl.createTexture();
@@ -76,8 +77,10 @@
       const cam = this.cam;
       gfx.depth(false, false);
       gfx.blend('add');
-      // Dim the backdrop a little while the bright day side of Earth fills the view.
-      const g = op * (0.5 + 0.5 * CA.smoothstep(7.2, 8.6, G.z));
+      // Dim the backdrop a little while the bright day side of Earth fills the view,
+      // and almost completely under a daytime sky.
+      const day = CA.world.daylight || 0;
+      const g = op * (0.5 + 0.5 * Math.max(CA.smoothstep(7.2, 8.6, G.z), 1 - CA.smoothstep(5.2, 6.4, G.z))) * (1 - 0.97 * day);
       gfx.use(gfx.p.skyDraw, { u_invViewProj: cam.invViewProj, u_sky: 0, u_gain: g * 0.11 });
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_CUBE_MAP, this.cube);

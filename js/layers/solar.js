@@ -12,7 +12,7 @@
 
   class SolarLayer extends CA.Layer {
     constructor() {
-      super({ name: 'solar', unit: U.AU, fade: [-1e9, -1e9, 16.75, 17.5], bound: 1.1e5 });
+      super({ name: 'solar', unit: U.AU, fade: [-1.7, -1.0, 16.75, 17.5], bound: 1.1e5 });
     }
     home() { return CA.world.earthHelio; }
 
@@ -143,7 +143,7 @@
       this.ready = true;
     }
 
-    update() {
+    update(G) {
       const T = CA.world.T;
       const P = astro.PLANETS;
       if (!this.planetPos) this.planetPos = [];
@@ -151,7 +151,8 @@
         const p = astro.planetScene(P[i], T);
         this.planetPos[i] = p;
         const o = i * 8, c = P[i].color;
-        const bright = P[i].name === 'Earth' ? 3.2 : 2.4;
+        // Seen from Earth's own neighbourhood, Earth is not a dot in the sky.
+        const bright = P[i].name === 'Earth' ? (G.z > 8.8 ? 3.2 : 0) : 2.4;
         this.pData[o] = p[0]; this.pData[o + 1] = p[1]; this.pData[o + 2] = p[2];
         this.pData[o + 3] = c[0] * bright; this.pData[o + 4] = c[1] * bright; this.pData[o + 5] = c[2] * bright;
         this.pData[o + 6] = 0; this.pData[o + 7] = DOT[P[i].name];
@@ -195,7 +196,8 @@
         }));
       }
 
-      const plF = CA.fadeIn([9.2, 9.9, 14.4, 15.2], z);
+      // Planets: dots with orbits from space; wandering stars in the sky from the ground.
+      const plF = Math.max(CA.fadeIn([9.2, 9.9, 14.4, 15.2], z), CA.fadeIn([-1.2, -0.7, 5.8, 6.6], z) * 0.55 * (1 - 0.9 * (CA.world.daylight || 0)));
       if (plF > 0) {
         gl.bindBuffer(gl.ARRAY_BUFFER, this.planets.buf);
         gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.pData);
