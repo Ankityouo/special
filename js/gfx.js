@@ -76,10 +76,77 @@ vec2 raySphere(vec3 ro, vec3 rd, float r){
   h = sqrt(h);
   return vec2(-b - h, -b + h);
 }
+// 2D simplex noise (Ashima / McEwan), range about -1..1.
+vec3 permute3(vec3 x){ return mod289(((x * 34.0) + 1.0) * x); }
+vec2 mod289v2(vec2 x){ return x - floor(x * (1.0 / 289.0)) * 289.0; }
+float snoise2(vec2 v){
+  const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
+  vec2 i = floor(v + dot(v, C.yy));
+  vec2 x0 = v - i + dot(i, C.xx);
+  vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+  vec4 x12 = x0.xyxy + C.xxzz;
+  x12.xy -= i1;
+  i = mod289v2(i);
+  vec3 p = permute3(permute3(i.y + vec3(0.0, i1.y, 1.0)) + i.x + vec3(0.0, i1.x, 1.0));
+  vec3 m = max(0.5 - vec3(dot(x0, x0), dot(x12.xy, x12.xy), dot(x12.zw, x12.zw)), 0.0);
+  m = m * m; m = m * m;
+  vec3 x = 2.0 * fract(p * C.www) - 1.0;
+  vec3 h = abs(x) - 0.5;
+  vec3 ox = floor(x + 0.5);
+  vec3 a0 = x - ox;
+  m *= 1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h);
+  vec3 g;
+  g.x = a0.x * x0.x + h.x * x0.y;
+  g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+  return 130.0 * dot(m, g);
+}
+// Integer hash; hash2i matches CA.hash2i in JavaScript bit for bit.
+uint hashu(uint x){ x ^= x >> 16u; x *= 0x7feb352du; x ^= x >> 15u; x *= 0x846ca68bu; x ^= x >> 16u; return x; }
+float hash2i(ivec2 c, uint seed){ return float(hashu((uint(c.x) * 1597334677u) ^ (uint(c.y) * 0x3c6ef372u) ^ seed) >> 8u) / 16777216.0; }
+float hash3i(ivec3 c, uint seed){ return float(hashu((uint(c.x) * 1597334677u) ^ (uint(c.y) * 0x3c6ef372u) ^ (uint(c.z) * 0x9e3779b9u) ^ seed) >> 8u) / 16777216.0; }
+// Nearest and second-nearest feature distances of a jittered-grid Voronoi (F1, F2), plus the cell id.
+vec3 voronoi2(vec2 p, uint seed, out ivec2 cell){
+  vec2 ip = floor(p);
+  float d1 = 1e9, d2 = 1e9;
+  cell = ivec2(0);
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    ivec2 c = ivec2(ip) + ivec2(i, j);
+    vec2 s = vec2(c) + vec2(hash2i(c, seed), hash2i(c, seed + 1u));
+    float d = length(s - p);
+    if (d < d1) { d2 = d1; d1 = d; cell = c; } else if (d < d2) { d2 = d; }
+  }
+  return vec3(d1, d2, 0.0);
+}
+// Bump mapping without tangents (Mikkelsen): perturb n by a height field h over surface points pos.
+vec3 bumpNormal(vec3 n, vec3 pos, float h){
+  vec3 dpdx = dFdx(pos), dpdy = dFdy(pos);
+  float dhdx = dFdx(h), dhdy = dFdy(h);
+  vec3 r1 = cross(dpdy, n), r2 = cross(n, dpdx);
+  float det = dot(dpdx, r1);
+  if (abs(det) < 1e-30) return n;
+  vec3 grad = sign(det) * (dhdx * r1 + dhdy * r2);
+  return normalize(abs(det) * n - grad);
+}
 `;
 
   // ------------------------------------------------------------------ shaders
   const SH = {};
+  CA.GLSL = { COMMON };
+  CA.SH = SH;
+
+  // Fullscreen pass that hands each pixel its exact view direction (rotation-only
+  // matrices), for ray-marched layers.
+  SH.rayVS = `
+layout(location=0) in vec2 a_corner;
+uniform mat4 u_invRotViewProj;
+out vec3 v_rd;
+out vec2 v_ndc;
+void main(){
+  vec4 w = u_invRotViewProj * vec4(a_corner, 1.0, 1.0);
+  v_rd = w.xyz / w.w;
+  v_ndc = a_corner;
+  gl_Position = vec4(a_corner, 0.0, 1.0);
+}`;
 
   // Particle clouds as point sprites. Size is a world radius; brightness is a
   // surface brightness, so distant particles fade (flux-conserving clamp).
@@ -88,7 +155,7 @@ layout(location=0) in vec3 a_pos;
 layout(location=1) in vec4 a_col;
 layout(location=2) in float a_size;
 uniform mat4 u_view, u_proj;
-uniform float u_pxScale, u_minPx, u_maxPx, u_gain, u_sizeMul, u_constFlux;
+uniform float u_pxScale, u_minPx, u_maxPx, u_gain, u_sizeMul, u_constFlux, u_twinkle, u_time;
 uniform vec3 u_fadeCenter;
 uniform float u_fadeR0, u_fadeR1, u_slabDepth, u_slabWidth;
 out vec3 v_col;
@@ -105,7 +172,10 @@ void main(){
   float radial = 1.0;
   if (u_fadeR1 > 0.0) radial = 1.0 - smoothstep(u_fadeR0, u_fadeR1, length(a_pos - u_fadeCenter));
   if (u_slabWidth > 0.0) { float s = (dist - u_slabDepth) / u_slabWidth; radial *= exp(-s * s); }
-  v_col = a_col.rgb * (u_gain * flux * nearFade * radial);
+  // Optional flicker; a_col.a carries each point's phase.
+  float tw = u_twinkle > 0.0 ? 1.0 - u_twinkle * (0.5 + 0.5 * sin(u_time * (1.3 + fract(a_col.a * 13.7) * 4.0) + a_col.a * 6.2831853)) : 1.0;
+  v_col = a_col.rgb * (u_gain * flux * nearFade * radial * tw);
+  if (nearFade * radial < 0.003) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); gl_PointSize = 0.0; return; }
   gl_Position = u_proj * vp;
   gl_PointSize = rc * 4.0;
 }`;
@@ -233,6 +303,13 @@ void main(){
     return;
   } else if (u_mode == 2) {     // glow
     a = (1.0 / (1.0 + d2 * 60.0) + 0.25 * exp(-d2 * 8.0)) * edge;
+  } else if (u_mode == 4) {     // star glare: halo, diffraction spikes and corona rays
+    float r = sqrt(d2);
+    float ang = atan(v_uv.y, v_uv.x);
+    float halo = 0.04 / (0.004 + d2) * 0.02 + 0.25 * exp(-d2 * 14.0);
+    float sp = pow(abs(cos(ang * 2.0)), 180.0) * exp(-r * 2.6) + 0.45 * pow(abs(cos(ang * 2.0 + 1.5708)), 260.0) * exp(-r * 4.2);
+    float rays = (0.55 + 0.45 * snoise(vec3(ang * 6.0, r * 3.0 - u_time * 0.04, v_param))) * exp(-r * 7.0) * 0.5;
+    a = (halo + sp * 0.5 + rays) * edge;
   } else if (u_mode == 3) {     // turbulent nebula
     vec3 q = vec3(v_uv * 1.7, v_param * 17.0);
     float n = fbm(q + vec3(0.0, 0.0, u_time * 0.01), 5);
@@ -242,6 +319,73 @@ void main(){
     a = (exp(-d2 * 4.0) - 0.0183) * 1.0187;
   }
   o = vec4(v_col * a, 1.0);
+}`;
+
+  // Ray-traced sphere impostors (atoms, nucleons): exact silhouettes and depth,
+  // lit in view space; spheres smaller than a pixel keep a minimum footprint and
+  // dim to conserve their light. a_col.a = ambient occlusion (1 open, 0 buried).
+  SH.spheresVS = `
+layout(location=0) in vec2 a_corner;
+layout(location=1) in vec3 a_pos;
+layout(location=2) in vec4 a_col;
+layout(location=3) in float a_size;
+uniform mat4 u_view, u_proj;
+uniform float u_pxScale, u_minPx, u_radMul, u_cullR, u_focusD, u_nearFade;
+out vec3 v_c;
+out vec3 v_q;
+out float v_r;
+out vec3 v_col;
+out float v_ao;
+out float v_flux;
+void main(){
+  vec4 c = u_view * vec4(a_pos, 1.0);
+  float r = a_size * u_radMul;
+  float dist = -c.z;
+  v_col = a_col.rgb; v_ao = a_col.a;
+  // Beyond u_cullR of the focus a sphere fades out and is skipped: far behind a
+  // close-up atom, thousands of others would only add overdraw.
+  float fd = u_cullR > 0.0 ? length(c.xyz - vec3(0.0, 0.0, -u_focusD)) / u_cullR : 0.0;
+  if (dist <= r * 1.02 || fd > 1.0) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); v_r = 0.0; v_c = vec3(0.0); v_q = vec3(0.0); v_flux = 0.0; return; }
+  float rpx = r * u_pxScale / dist;
+  float grow = max(1.0, u_minPx / max(rpx, 1e-6));
+  float R = r * grow;
+  // Spheres crowding the camera (between it and the focus) fade out of the way.
+  v_flux = 1.0 / (grow * grow) * (1.0 - smoothstep(0.7, 1.0, fd)) * (u_nearFade > 0.0 ? smoothstep(u_nearFade * 0.45, u_nearFade, dist) : 1.0);
+  if (v_flux < 0.004) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); v_r = 0.0; return; }
+  float k = R * dist / sqrt(max(dist * dist - R * R, 1e-20)) * 1.04;
+  vec3 q = c.xyz + vec3(a_corner * k, 0.0);
+  v_c = c.xyz; v_q = q; v_r = R;
+  gl_Position = u_proj * vec4(q, 1.0);
+}`;
+  SH.spheresFS = `
+in vec3 v_c;
+in vec3 v_q;
+in float v_r;
+in vec3 v_col;
+in float v_ao;
+in float v_flux;
+uniform mat4 u_proj;
+uniform vec3 u_light;
+uniform float u_gain, u_opacity, u_emit;
+out vec4 o;
+void main(){
+  if (v_r <= 0.0) discard;
+  vec3 rd = normalize(v_q);
+  float b = dot(rd, v_c);
+  float c = dot(v_c, v_c) - v_r * v_r;
+  float h = b * b - c;
+  if (h < 0.0) discard;
+  float t = b - sqrt(h);
+  vec3 p = rd * t;
+  vec3 n = (p - v_c) / v_r;
+  float diff = max(dot(n, u_light), 0.0);
+  float rim = pow(1.0 - max(dot(n, -rd), 0.0), 2.5);
+  float spec = pow(max(dot(reflect(-u_light, n), -rd), 0.0), 28.0);
+  float ao = mix(0.3, 1.0, v_ao);
+  vec3 col = v_col * ((0.1 + 0.85 * diff) * ao + u_emit) + v_col * rim * 0.4 + vec3(spec) * 0.3 * ao;
+  vec4 clip = u_proj * vec4(p, 1.0);
+  gl_FragDepth = clamp(clip.z / clip.w * 0.5 + 0.5, 0.0, 1.0);
+  o = vec4(col * u_gain * v_flux * u_opacity, u_opacity);
 }`;
 
   // Instanced anti-aliased line segments with optional traveling dashes.
@@ -331,22 +475,61 @@ void main(){
   gl_Position = u_viewProj * vec4(wp, 1.0);
 }`;
 
-  // Earth: Blue Marble day map, city lights, moving clouds, ocean glint and a
-  // single-scattering atmosphere (Rayleigh + Mie), all ray-traced per pixel.
+  // Earth's impostor also passes the view ray; in fullscreen mode (camera in or
+  // near the atmosphere) the ray comes from a rotation-only matrix, so it stays
+  // exact however close the camera is to the ground.
+  SH.earthVS = `
+layout(location=0) in vec2 a_corner;
+uniform mat4 u_viewProj, u_invRotViewProj;
+uniform vec3 u_camPos, u_center, u_camUp;
+uniform float u_radius;
+uniform int u_full;
+out vec3 v_rd;
+void main(){
+  if (u_full == 1) {
+    vec4 w = u_invRotViewProj * vec4(a_corner, 1.0, 1.0);
+    v_rd = w.xyz / w.w;
+    gl_Position = vec4(a_corner, 0.99999, 1.0);
+    return;
+  }
+  vec3 toCam = u_camPos - u_center;
+  float D = length(toCam);
+  vec3 f = toCam / D;
+  vec3 up = abs(dot(u_camUp, f)) > 0.99 ? vec3(1.0, 0.0, 0.0) : u_camUp;
+  vec3 r = normalize(cross(up, f));
+  vec3 u = cross(f, r);
+  float R = u_radius;
+  float k = R * D / sqrt(max(D * D - R * R, 1e-6)) * 1.03;
+  vec3 wp = u_center + (r * a_corner.x + u * a_corner.y) * k;
+  v_rd = wp - u_camPos;
+  gl_Position = u_viewProj * vec4(wp, 1.0);
+}`;
+
+  // Earth: Blue Marble day map, city lights, clouds on a deck 6 km up, ocean
+  // glint, aurora and a single-scattering atmosphere (Rayleigh, Mie, ozone), all
+  // ray-traced per pixel from the camera. Close to the ground, band-limited
+  // noise in local meters adds terrain, coastlines, waves, cloud edges and
+  // streets that the satellite maps are far too coarse to show.
   SH.earthFS = `
-in vec3 v_wp;
-uniform vec3 u_camPos, u_sunDir;
+in vec3 v_rd;
+uniform vec3 u_camPos, u_camRad, u_sunDir, u_camLocal, u_geoPole;
+uniform float u_camAlt;
 uniform mat4 u_viewProj;
-uniform mat3 u_toEarth;
+uniform mat3 u_toEarth, u_toLocal;
 uniform sampler2D u_day, u_lights, u_clouds, u_water;
-uniform float u_cloudShift, u_sunI, u_atmoGain, u_opacity, u_lightsGain;
+uniform float u_cloudShift, u_sunI, u_atmoGain, u_opacity, u_lightsGain, u_pxAngle, u_time, u_aurora, u_q;
+uniform vec2 u_homeUV;
 out vec4 o;
 ${COMMON}
 const float RA = 1.025;
+const float RX = 1.045;       // outer edge of the aurora
 const float HR = 0.0032;
 const float HM = 0.0006;
 const vec3 BR = vec3(14.8, 34.4, 84.4);
 const float BM = 36.0;
+const vec3 BO = vec3(3.1, 8.75, 0.4);   // ozone absorption (follows the Rayleigh profile)
+const float HC = 0.0009;                // cloud deck altitude
+const float REM = 6371000.0;
 
 vec4 texEq(sampler2D t, vec3 q, float shift){
   float lon = atan(q.y, q.x);
@@ -361,102 +544,326 @@ vec4 texEq(sampler2D t, vec3 q, float shift){
   return textureGrad(t, vec2(u1, v), ddx, ddy);
 }
 
-vec3 atmosphere(vec3 ro, vec3 rd, float t0, float t1, vec3 L, float jit, out vec3 trans){
-  const int N = 14;
-  const int NL = 4;
-  float ds = (t1 - t0) / float(N);
+// Optical depth to space from height h (in scale heights) along cos(zenith) mu,
+// in units of scale height x density: Schüler's Chapman-function approximation.
+float chapman(float X, float h, float mu){
+  float c = sqrt(X + h);
+  if (mu >= 0.0) return c / (c * mu + 1.0) * exp(-h);
+  float x0 = sqrt(1.0 - mu * mu) * (X + h);
+  float c0 = sqrt(x0);
+  return 2.0 * c0 * exp(X - x0) - c / (1.0 - c * mu) * exp(-h);
+}
+// Transmittance of sunlight reaching a point at radius r (0 if the planet is in the way).
+vec3 sunTrans(float r, float mu){
+  if (mu < -sqrt(max(1.0 - 1.0 / (r * r), 0.0))) return vec3(0.0);
+  float h = max(r - 1.0, 0.0);
+  float oR = HR * chapman(1.0 / HR, h / HR, mu);
+  float oM = HM * chapman(1.0 / HM, h / HM, mu);
+  return exp(-((BR + BO) * oR + BM * 1.1 * oM));
+}
+
+// Single scattering along [t0, t1]. Samples crowd toward the dense end of the ray.
+// At tMark (a cloud) it also returns the light scattered in front of it (Sm) and
+// the transmittance to it (Tm).
+vec3 inscatter(vec3 ro, vec3 rd, float t0, float t1, vec3 L, float jit, int dense, float tMark,
+               out vec3 T, out vec3 Sm, out vec3 Tm){
+  int N = int(mix(8.0, 16.0, u_q));
   float mu = dot(rd, L);
   float pr = 0.0596831 * (1.0 + mu * mu);
   const float g = 0.76;
   float pm = 0.1193662 * ((1.0 - g * g) * (1.0 + mu * mu)) / ((2.0 + g * g) * pow(1.0 + g * g - 2.0 * g * mu, 1.5));
   vec3 sumR = vec3(0.0), sumM = vec3(0.0);
   float odR = 0.0, odM = 0.0;
-  for (int i = 0; i < N; i++) {
-    vec3 p = ro + rd * (t0 + (float(i) + jit) * ds);
-    float h = max(length(p) - 1.0, 0.0);
+  float span = t1 - t0;
+  bool marked = false;
+  Sm = vec3(0.0); Tm = vec3(1.0);
+  for (int i = 0; i < 16; i++) {
+    if (i >= N) break;
+    float x = (float(i) + jit) / float(N);
+    float s, w;
+    if (dense == 1) { s = x * x; w = 2.0 * x; }                          // near the camera
+    else if (dense == 2) { s = 1.0 - (1.0 - x) * (1.0 - x); w = 2.0 * (1.0 - x); } // near the far end
+    else { s = x; w = 1.0; }
+    float t = t0 + span * s;
+    float ds = span * w / float(N);
+    if (!marked && t > tMark) {
+      marked = true;
+      Sm = sumR * BR * pr + sumM * BM * pm;
+      Tm = exp(-((BR + BO) * odR + BM * 1.1 * odM));
+    }
+    vec3 p = ro + rd * t;
+    float r = length(p);
+    float h = max(r - 1.0, 0.0);
     float dR = exp(-h / HR) * ds;
     float dM = exp(-h / HM) * ds;
-    odR += dR; odM += dM;
-    vec2 tpl = raySphere(p, L, 1.0);
-    if (tpl.x > 0.0 && tpl.x < 1e19) continue;
-    float tl = raySphere(p, L, RA).y;
-    float dsl = tl / float(NL);
-    float lR = 0.0, lM = 0.0;
-    for (int j = 0; j < NL; j++) {
-      vec3 q = p + L * ((float(j) + 0.5) * dsl);
-      float hq = max(length(q) - 1.0, 0.0);
-      lR += exp(-hq / HR) * dsl;
-      lM += exp(-hq / HM) * dsl;
-    }
-    vec3 att = exp(-(BR * (odR + lR) + BM * 1.1 * (odM + lM)));
-    sumR += dR * att;
-    sumM += dM * att;
+    odR += dR * 0.5; odM += dM * 0.5;
+    vec3 tv = exp(-((BR + BO) * odR + BM * 1.1 * odM));
+    vec3 ts = sunTrans(r, dot(p, L) / r);
+    sumR += dR * ts * tv;
+    sumM += dM * ts * tv;
+    odR += dR * 0.5; odM += dM * 0.5;
   }
-  trans = exp(-(BR * odR + BM * 1.1 * odM));
+  T = exp(-((BR + BO) * odR + BM * 1.1 * odM));
+  if (!marked) { Sm = sumR * BR * pr + sumM * BM * pm; Tm = T; }
   return sumR * BR * pr + sumM * BM * pm;
 }
 
-void main(){
-  vec3 rd = normalize(v_wp - u_camPos);
-  vec3 ro = v_wp;                       // ray origin near the planet: no float cancellation
-  float tCam = -length(v_wp - u_camPos);
-  vec2 ta = raySphere(ro, rd, RA);
-  vec2 tp = raySphere(ro, rd, 1.0);
-  bool hitP = tp.x < 1e19 && tp.x > tCam;
-  bool hitA = ta.x < 1e19 && ta.y > tCam;
+// Band-limited fractal detail over local ground coordinates (meters): x = albedo
+// variation, y = relief height (m). Octaves finer than a few pixels fade out, so
+// distant ground keeps the plain satellite colours.
+vec2 groundDetail(vec2 p, float fp){
+  float v = 0.0, h = 0.0, w = 6000.0, a = 1.0;
+  int oct = int(mix(10.0, 18.0, u_q));
+  for (int i = 0; i < 18; i++) {
+    if (i >= oct) break;
+    float k = smoothstep(fp * 2.5, fp * 7.0, w);
+    if (k <= 0.0) break;
+    float n = snoise2(p / w + vec2(float(i) * 17.31, float(i) * -9.73));
+    v += n * a * k;
+    h += n * w * 0.03 * k;
+    w *= 0.5; a *= 0.82;
+  }
+  return vec2(v * 0.16, h);
+}
+float cloudDetail(vec2 p, float fp){
+  float v = 0.0, w = 9000.0, a = 1.0, n = 0.0;
+  int oct = int(mix(5.0, 9.0, u_q));
+  for (int i = 0; i < 9; i++) {
+    if (i >= oct) break;
+    float k = smoothstep(fp * 2.0, fp * 6.0, w);
+    if (k <= 0.0) break;
+    v += snoise2(p / w + vec2(float(i) * 5.1, 3.7)) * a * k;
+    n += a;
+    w *= 0.5; a *= 0.6;
+  }
+  return n > 0.0 ? v / 1.6 : 0.0;
+}
+// Night-time city texture with mean ~1: districts of rotated street grids,
+// anti-aliased against the pixel footprint fp (meters) so it never sparkles.
+float cityPattern(vec2 p, float fp){
+  ivec2 dc;
+  vec3 dv = voronoi2(p / 1300.0, 5u, dc);
+  float ang = hash2i(dc, 21u) * 3.14159;
+  float B = mix(70.0, 190.0, hash2i(dc, 22u));          // block size
+  float bright = 0.06 + 1.5 * smoothstep(-0.45, 0.55, snoise2(p / 2600.0 + 7.1)); // parks, rivers and bright centres
+  vec2 cs = vec2(cos(ang), sin(ang));
+  vec2 u = vec2(dot(p, cs), dot(p, vec2(-cs.y, cs.x))) / B + vec2(hash2i(dc, 23u), hash2i(dc, 24u));
+  vec2 f = fract(u);
+  ivec2 bc = ivec2(floor(u));
+  vec2 dd = min(f, 1.0 - f) * B;                         // distance to streets, meters
+  bool majorX = (bc.x % 4 == 0 && f.x < 0.5) || ((bc.x + 1) % 4 == 0 && f.x >= 0.5);
+  bool majorY = (bc.y % 4 == 0 && f.y < 0.5) || ((bc.y + 1) % 4 == 0 && f.y >= 0.5);
+  float hx = majorX ? 9.0 : 4.5, hy = majorY ? 9.0 : 4.5;
+  // Line intensity with exact coverage when the street is thinner than a pixel.
+  float lx = clamp((hx + 0.5 * fp - dd.x) / fp, 0.0, 1.0);
+  float ly = clamp((hy + 0.5 * fp - dd.y) / fp, 0.0, 1.0);
+  float wx = majorX ? 1.6 : 1.0, wy = majorY ? 1.6 : 1.0;
+  float streets = max(lx * wx, ly * wy);
+  // Lit windows: a dim per-block glow.
+  float blockGlow = 0.02 + 0.1 * hash2i(bc + dc * 97, 25u);
+  float covS = clamp((2.0 * 5.5) / B * 2.0, 0.0, 1.0);    // share of ground that is street
+  float mean = covS * 1.2 + (1.0 - covS) * 0.07;
+  return (streets * 1.0 + (1.0 - min(streets, 1.0)) * blockGlow) / mean * bright;
+}
 
-  float tc = -dot(ro, rd);
-  vec3 pc = ro + rd * (hitP ? tp.x : tc);
-  vec3 n = normalize(pc);
+// Aurora: curtains on ovals around the geomagnetic poles, glowing on the night side.
+vec3 aurora(vec3 ro, vec3 rd, float tMax, vec3 L, float jit){
+  vec2 to = raySphere(ro, rd, RX);
+  if (to.y <= 0.0) return vec3(0.0);
+  float ta = max(to.x, 0.0), tb = min(to.y, tMax);
+  vec2 ti = raySphere(ro, rd, 1.012);
+  if (ti.x > 0.0 && ti.x < 1e19) tb = min(tb, ti.x);
+  if (tb <= ta) return vec3(0.0);
+  vec3 P = u_geoPole;
+  vec3 e1 = normalize(cross(P, abs(P.z) < 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0)));
+  vec3 e2 = cross(P, e1);
+  vec3 Le = u_toEarth * L;
+  int N = int(mix(7.0, 14.0, u_q));
+  float ds = (tb - ta) / float(N);
+  vec3 acc = vec3(0.0);
+  for (int i = 0; i < 14; i++) {
+    if (i >= N) break;
+    vec3 p = ro + rd * (ta + (float(i) + jit) * ds);
+    float r = length(p);
+    vec3 qe = u_toEarth * (p / r);
+    float sl = dot(qe, P);
+    float night = smoothstep(0.08, -0.25, dot(qe, Le));
+    if (night <= 0.0) continue;
+    // Oval centred ~23 deg from the magnetic pole, a little wider toward midnight.
+    float anti = -dot(normalize(qe - P * sl), normalize(Le - P * dot(Le, P)));
+    float colat = acos(clamp(abs(sl), -1.0, 1.0));
+    float c0 = 0.36 + 0.07 * anti;
+    float band = exp(-pow((colat - c0) / (0.045 + 0.02 * max(anti, 0.0)), 2.0));
+    if (band < 0.02) continue;
+    float lon = atan(dot(qe, e2), dot(qe, e1));
+    float fold = snoise(vec3(lon * 6.0, colat * 30.0, u_time * 0.035));
+    float curtain = smoothstep(-0.2, 0.7, fold) * (0.45 + 0.55 * smoothstep(-0.4, 0.6, snoise(vec3(lon * 23.0, u_time * 0.06, sl * 5.0))));
+    // From orbit the oval reads as a soft, gently folded band.
+    curtain = mix(curtain, 0.3 + 0.45 * smoothstep(-0.6, 0.8, fold), smoothstep(0.05, 0.8, u_camAlt));
+    float rayAmp = mix(0.45, 0.12, smoothstep(0.02, 0.5, u_camAlt));   // fine rays blur out from orbit
+    float rays = 1.0 - rayAmp + rayAmp * snoise(vec3(lon * 190.0, colat * 12.0, u_time * 0.25));
+    float h = r - 1.0;
+    float green = exp(-pow((h - 0.019) / 0.007, 2.0)) + 0.35 * exp(-pow((h - 0.03) / 0.01, 2.0));
+    float red = exp(-pow((h - 0.036) / 0.008, 2.0));
+    acc += (vec3(0.15, 1.0, 0.42) * green + vec3(0.85, 0.18, 0.5) * red * 0.55) * band * curtain * rays * night * ds;
+  }
+  return acc * 55.0 * mix(1.0, 0.55, smoothstep(0.1, 1.0, u_camAlt));
+}
+
+void main(){
+  vec3 rd = normalize(v_rd);
+  float r0 = 1.0 + u_camAlt;
+  vec3 ro = u_camRad * r0;
+  float b = r0 * dot(u_camRad, rd);
+  // Planet, cloud deck and atmosphere, solved without cancellation near the ground.
+  float cP = u_camAlt * (2.0 + u_camAlt);
+  float dP = b * b - cP;
+  bool hitP = dP >= 0.0 && b < 0.0;
+  float tP = hitP ? cP / (-b + sqrt(dP)) : 1e20;
+  float cA = r0 * r0 - RA * RA;
+  float dA = b * b - cA;
+  float sA = sqrt(max(dA, 0.0));
+  float tA0 = max(-b - sA, 0.0), tA1 = -b + sA;
+  bool hitA = dA >= 0.0 && tA1 > 0.0;
+  float cX = r0 * r0 - RX * RX;
+  bool hitX = b * b - cX >= 0.0 && -b + sqrt(max(b * b - cX, 0.0)) > 0.0;
+  float tEnd = hitP ? tP : tA1;
+  float cC = (u_camAlt - HC) * (2.0 + u_camAlt + HC);
+  float dC = b * b - cC;
+  float tC = 1e20;
+  if (dC >= 0.0) {
+    float sC = sqrt(dC);
+    if (cC > 0.0) { if (b < 0.0) tC = cC / (-b + sC); }
+    else tC = -b + sC;
+  }
+  bool hitC = hitA && tC > 0.0 && tC < tEnd;
+
+  // Surface point for texturing: the ground hit, else the ray's closest approach
+  // (keeps screen-space derivatives well behaved at the limb).
+  float tS = hitP ? tP : max(-b, 0.0);
+  vec3 ps = ro + rd * tS;
+  vec3 n = normalize(ps);
   vec3 q = u_toEarth * n;
-  vec3 Le = u_toEarth * u_sunDir;
+  vec3 L = u_sunDir;
+  vec3 LL = u_toLocal * L;
+  vec3 rdL = u_toLocal * rd;
+  vec3 nL0 = u_toLocal * n;
+  vec3 pl = u_camLocal + rdL * (tS * REM);
+  float fp = max(tS * REM * u_pxAngle, 1e-3) / max(abs(dot(n, rd)), 0.15);
+
   vec3 day = texEq(u_day, q, 0.0).rgb;
   float lights = texEq(u_lights, q, 0.0).r;
-  float cloud = texEq(u_clouds, q, u_cloudShift).r;
-  float cloudSh = texEq(u_clouds, normalize(q + Le * 0.012), u_cloudShift).r;
   float water = texEq(u_water, q, 0.0).r;
+  float NdL0 = dot(n, L);
+  // Cloud shadow: the deck above this point, toward the Sun.
+  vec3 shP = normalize(ps + L * (HC / max(NdL0, 0.12)));
+  float cloudSh = texEq(u_clouds, u_toEarth * shP, u_cloudShift).r;
+  // Cloud deck where the ray crosses it (or above the ground point).
+  float tc = hitC ? tC : tS;
+  vec3 pc = ro + rd * tc;
+  vec3 nc = normalize(pc);
+  float cBase = texEq(u_clouds, u_toEarth * nc, u_cloudShift).r;
 
-  if (!hitA) discard;
+  // Close-up detail, band-limited by the pixel footprint.
+  vec2 det = groundDetail(pl.xz, fp);
+  float coastK = smoothstep(5000.0, 500.0, fp);
+  water = mix(water, smoothstep(0.38, 0.62, water + det.x * 0.9), coastK);
+  // Whatever the coarse map says, you are standing on land.
+  float keepW = smoothstep(900.0, 2600.0, length(pl.xz));
+  float forcedLand = water * (1.0 - keepW);
+  water *= keepW;
+  float land = 1.0 - water;
+  float waveK = smoothstep(60.0, 4.0, fp);
+  float waveH = waveK * (snoise2(pl.xz / 41.0 + u_time * vec2(0.021, 0.008)) * 0.35 + snoise2(pl.xz / 13.0 - u_time * vec2(0.013, 0.03)) * 0.12);
+  vec3 nL = bumpNormal(nL0, pl, det.y * land + waveH * water);
+  vec3 wind = vec3(u_time * 6.0, 0.0, u_time * 2.5);
+  vec3 pcl = u_camLocal + rdL * (tc * REM) + wind;
+  float fpc = max(tc * REM * u_pxAngle, 1e-3) / max(abs(dot(nc, rd)), 0.1);
+  float cSharp = smoothstep(5000.0, 400.0, fpc);
+  float cDet = cSharp > 0.0 ? cloudDetail(pcl.xz, fpc) : 0.0;
+  float cov = mix(smoothstep(0.08, 0.95, cBase), smoothstep(0.4, 0.66, cBase + cDet * 0.42), cSharp);
+  vec3 plS = pl + LL * (HC * REM / max(NdL0, 0.12)) + wind;
+  float shSharp = smoothstep(3000.0, 300.0, fp);
+  float shDet = shSharp > 0.0 && u_q > 0.5 ? cloudDetail(plS.xz, max(fp * 4.0, 60.0)) : 0.0;
+  float shadow = mix(smoothstep(0.08, 0.95, cloudSh), smoothstep(0.4, 0.66, cloudSh + shDet * 0.42), shSharp);
 
-  vec3 L = u_sunDir;
-  float NdL = dot(n, L);
-  float diff = clamp((NdL + 0.02) / 1.02, 0.0, 1.0);
+  if (!hitA && !hitX) discard;
+
   vec3 V = -rd;
+  float jit = hash12(gl_FragCoord.xy);
+  vec3 ground = vec3(0.0);
+  if (hitP) {
+    float NdL = dot(nL, LL);
+    float diff = clamp((NdL + 0.02) / 1.02, 0.0, 1.0);
+    vec3 alb = day * (1.0 + det.x * land) * mix(vec3(1.0), vec3(1.04, 1.0, 0.92), clamp(det.x * 3.0, -1.0, 1.0) * land * 0.5 + 0.5);
+    alb = mix(alb, alb * vec3(0.85, 0.95, 1.1), water * 0.4);
+    alb = mix(alb, vec3(0.13, 0.125, 0.105) * (1.0 + det.x), forcedLand);
+    vec3 sunC = sunTrans(1.0006, NdL0) * u_sunI;
+    vec3 surf = alb * diff * sunC * (1.0 - 0.6 * shadow);
+    // Skylight keeps shadows and dusk from going pitch black.
+    surf += alb * vec3(0.35, 0.5, 0.8) * 0.05 * u_sunI * smoothstep(-0.25, 0.3, NdL0);
+    vec3 H = normalize(LL - rdL);
+    float nh = max(dot(nL, H), 0.0);
+    float rough = mix(1.0, 0.35, waveK);
+    float spec = pow(nh, 120.0 * rough) * 3.0 * rough + pow(nh, 18.0) * 0.12;
+    float fres = 0.04 + 0.96 * pow(1.0 - max(dot(nL, -rdL), 0.0), 5.0);
+    surf += vec3(1.0, 0.9, 0.75) * (spec + fres * 0.25) * water * (1.0 - shadow) * sunC * smoothstep(0.0, 0.25, NdL0);
+    float night = smoothstep(0.1, -0.15, NdL0);
+    // Up close, streets stop being points of light and become dimly lit ground.
+    float city = mix(1.0, cityPattern(pl.xz, fp), smoothstep(2500.0, 300.0, fp));
+    // Exposure: a whole view of city centre would otherwise glare white.
+    city *= mix(0.16, 1.0, smoothstep(300.0, 5000.0, fp)) * mix(0.1, 1.0, smoothstep(0.8, 15.0, fp));
+    surf += vec3(1.0, 0.7, 0.4) * pow(lights, 1.4) * city * u_lightsGain * night;
+    surf += day * vec3(0.55, 0.65, 0.9) * 0.018 * night;
+    ground = surf;
+  }
+  vec3 cloudCol = vec3(0.0);
+  if (hitC) {
+    float NdLc = dot(nc, L);
+    float cl = clamp((NdLc + 0.08) / 1.08, 0.0, 1.0);
+    vec3 sunC = sunTrans(1.0006 + HC, NdLc) * u_sunI;
+    bool below = u_camAlt < HC;
+    float lit = below ? mix(0.9, 0.3, cov) : 1.0;
+    cloudCol = vec3(0.98, 0.99, 1.0) * cl * sunC * 1.1 * lit;
+    cloudCol += vec3(0.4, 0.5, 0.75) * 0.04 * u_sunI * smoothstep(-0.3, 0.2, NdLc);
+    float nightC = smoothstep(0.1, -0.15, NdLc);
+    float lc = texEq(u_lights, u_toEarth * nc, 0.0).r;
+    cloudCol += vec3(1.0, 0.62, 0.35) * lc * u_lightsGain * 0.08 * nightC;
+  }
+
+  vec3 T, Sm, Tm;
+  int dense = (hitP && u_camAlt > 0.006) ? 2 : (u_camAlt < 0.02 ? 1 : (hitP ? 2 : 0));
+  float t0 = hitA ? tA0 : 0.0;
+  float t1 = hitA ? tEnd : 0.0;
   vec3 col = vec3(0.0);
   float alpha = 0.0;
-  if (hitP) {
-    cloud = smoothstep(0.08, 0.95, cloud);
-    cloudSh = smoothstep(0.08, 0.95, cloudSh);
-    vec3 H = normalize(L + V);
-    float nh = max(dot(n, H), 0.0);
-    float spec = pow(nh, 120.0) * 3.0 + pow(nh, 18.0) * 0.12;
-    float fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, V), 0.0), 5.0);
-    vec3 ground = day * (1.0 - 0.55 * cloudSh * (1.0 - cloud));
-    ground = mix(ground, ground * vec3(0.85, 0.95, 1.1), water * 0.4);
-    vec3 surf = ground * diff * u_sunI;
-    surf += vec3(1.0, 0.9, 0.75) * (spec + fres * 0.25) * water * (1.0 - cloud) * u_sunI * smoothstep(0.0, 0.25, NdL);
-    float cl = clamp((NdL + 0.08) / 1.08, 0.0, 1.0);
-    vec3 cloudCol = vec3(0.98, 0.99, 1.0) * cl * u_sunI * 1.1;
-    surf = mix(surf, cloudCol, cloud * 0.95);
-    float night = smoothstep(0.1, -0.15, NdL);
-    surf += vec3(1.0, 0.7, 0.4) * pow(lights, 1.4) * u_lightsGain * (1.0 - cloud * 0.8) * night;
-    surf += mix(day, vec3(0.8), cloud) * vec3(0.55, 0.65, 0.9) * 0.018 * night;
-    col = surf;
+  if (hitA && t1 > t0) {
+    vec3 sc = inscatter(ro, rd, t0, t1, L, jit, dense, hitC ? tc : 1e20, T, Sm, Tm);
+    float k = u_sunI * u_atmoGain;
+    sc *= k; Sm *= k;
+    col = sc + T * ground;
+    float c = hitC ? cov * 0.97 : 0.0;
+    if (hitC) col = Sm + Tm * c * cloudCol + (1.0 - c) * (col - Sm);
+    alpha = hitP ? 1.0 : 1.0 - dot(T, vec3(0.3333)) * (1.0 - c);
+  } else if (hitP) {
+    col = ground;
     alpha = 1.0;
   }
-  float t0 = max(ta.x, tCam);
-  float t1 = hitP ? tp.x : ta.y;
-  vec3 trans;
-  float jit = hash12(gl_FragCoord.xy);
-  vec3 sc = atmosphere(ro, rd, t0, t1, L, jit, trans) * u_sunI * u_atmoGain;
-  if (hitP) col = col * trans + sc;
-  else col = sc;
   // Airglow: a faint rim on the night side keeps the silhouette readable.
-  float limbH = length(ro + rd * tc) - 1.0;
-  float airglow = exp(-pow((limbH - 0.008) / 0.011, 2.0)) * smoothstep(0.15, -0.2, dot(normalize(ro + rd * tc), L));
-  if (!hitP) col += vec3(0.22, 0.42, 0.4) * airglow * 0.07;
+  float tcl = max(-b, 0.0);
+  vec3 pclose = ro + rd * tcl;
+  float limbH = length(pclose) - 1.0;
+  float airglow = exp(-pow((limbH - 0.008) / 0.011, 2.0)) * smoothstep(0.15, -0.2, dot(normalize(pclose), L));
+  if (!hitP) col += vec3(0.22, 0.42, 0.4) * airglow * 0.07 * smoothstep(0.004, 0.03, u_camAlt);
+  // Light pollution glowing low in the sky above cities, at night.
+  float el = dot(rd, u_camRad);
+  float inside = 1.0 - smoothstep(0.004, 0.02, u_camAlt);
+  float nightHere = smoothstep(0.05, -0.15, dot(u_camRad, L));
+  float homeL = textureLod(u_lights, u_homeUV, 4.5).r;
+  if (!hitP) col += vec3(1.0, 0.6, 0.33) * homeL * u_lightsGain * 0.035 * exp(-max(el, 0.0) * 9.0) * inside * nightHere;
+  if (u_aurora > 0.0 && hitX) col += aurora(ro, rd, hitP ? tP : 1e20, L, jit) * u_aurora * (hitA ? mix(vec3(1.0), T, 0.5) : vec3(1.0));
 
-  vec3 hitW = hitP ? pc : ro + rd * tc;
+  vec3 hitW = u_camPos + rd * tS;
   vec4 clip = u_viewProj * vec4(hitW, 1.0);
   gl_FragDepth = hitP ? clamp(clip.z / clip.w * 0.5 + 0.5, 0.0, 1.0) : 0.9999999;
   o = vec4(col * u_opacity, alpha * u_opacity);
@@ -719,7 +1126,7 @@ void main(){
   SH.compositeFS = `
 in vec2 v_uv;
 uniform sampler2D u_scene, u_bloom;
-uniform float u_bloomStrength, u_exposure, u_time, u_grain, u_vignette, u_fade;
+uniform float u_bloomStrength, u_exposure, u_time, u_grain, u_vignette, u_fade, u_zoomBlur;
 uniform vec2 u_res;
 out vec4 o;
 ${COMMON}
@@ -730,6 +1137,19 @@ vec3 aces(vec3 x){
 vec3 toSRGB(vec3 c){ return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
 void main(){
   vec3 c = texture(u_scene, v_uv).rgb;
+  // Warp streaks while flying fast between scales.
+  if (u_zoomBlur > 0.002) {
+    vec2 dir = v_uv - 0.5;
+    float j = hash12(gl_FragCoord.xy) * 0.5;
+    vec3 acc = c; float ws = 1.0;
+    for (int i = 1; i < 10; i++) {
+      float s = (float(i) + j) / 10.0;
+      float w = 1.0 - s * 0.7;
+      acc += texture(u_scene, v_uv - dir * s * u_zoomBlur * 0.09).rgb * w;
+      ws += w;
+    }
+    c = acc / ws;
+  }
   vec3 b = texture(u_bloom, v_uv).rgb;
   c += b * u_bloomStrength;
   c *= u_exposure;
@@ -769,7 +1189,28 @@ void main(){
       gl.bindVertexArray(null);
       this.f32 = { 9: new Float32Array(9), 16: new Float32Array(16) };
       this.time = 0;
+      this.maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;
+      // Device class sets the starting quality and particle budgets; the governor in
+      // app.js then tunes resolution and shader detail to the measured frame rate.
+      let renderer = '';
+      try {
+        renderer = String(gl.getParameter(gl.RENDERER) || '');
+        if (/^WebKit/i.test(renderer)) {
+          const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+          if (dbg) renderer = String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || renderer);
+        }
+      } catch (e) { /* renderer string unavailable */ }
+      const soft = /swiftshader|llvmpipe|software|basic render/i.test(renderer);
+      const coarse = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+      const cores = navigator.hardwareConcurrency || 4;
+      let tier = soft ? 0 : coarse ? (cores >= 8 ? 1 : 0) : (cores >= 6 ? 2 : 1);
+      const qp = (location.search.match(/[?&]q(?:uality)?=(low|mid|high|ultra)/i) || [])[1];
+      if (qp) tier = { low: 0, mid: 1, high: 2, ultra: 3 }[qp.toLowerCase()];
+      CA.device = { tier, renderer, coarse, forced: !!qp, density: [0.45, 0.75, 1, 1][tier] };
+      this.parallel = gl.getExtension('KHR_parallel_shader_compile');
       this.p = {};
+      this.defs = {};
+      this.q = 1;                 // shader detail, 0..1 (set by the quality governor)
       this.buildPrograms();
     }
 
@@ -781,55 +1222,80 @@ void main(){
       return b;
     }
 
-    compile(type, src, name) {
-      const gl = this.gl;
-      const s = gl.createShader(type);
-      gl.shaderSource(s, src);
-      gl.compileShader(s);
-      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS) && !gl.isContextLost()) {
-        const log = gl.getShaderInfoLog(s);
-        const numbered = src.split('\n').map((l, i) => i + 1 + ': ' + l).join('\n');
-        console.error('Shader error in ' + name + ':\n' + log + '\n' + numbered);
-        throw new Error('Shader compile failed: ' + name + ' — ' + log);
-      }
-      return s;
-    }
-
-    program(name, vs, fs) {
+    // Programs compile in the background where the browser allows it
+    // (KHR_parallel_shader_compile). gfx.p.<name> finishes a program on first use;
+    // layers can wait with `yield* gfx.whenReady(name)` so nothing ever stalls a frame.
+    define(name, vs, fs) {
+      if (this.defs[name]) return;
       const gl = this.gl;
       const p = gl.createProgram();
-      gl.attachShader(p, this.compile(gl.VERTEX_SHADER, HEADER + vs, name + '.vs'));
-      gl.attachShader(p, this.compile(gl.FRAGMENT_SHADER, HEADER + fs, name + '.fs'));
+      const mk = (type, src) => {
+        const sh = gl.createShader(type);
+        gl.shaderSource(sh, HEADER + src);
+        gl.compileShader(sh);
+        gl.attachShader(p, sh);
+        return sh;
+      };
+      const d = { p, v: mk(gl.VERTEX_SHADER, vs), f: mk(gl.FRAGMENT_SHADER, fs), vs, fs, prog: null, err: null };
       gl.linkProgram(p);
-      if (!gl.getProgramParameter(p, gl.LINK_STATUS) && !gl.isContextLost()) {
-        throw new Error('Program link failed: ' + name + ' — ' + gl.getProgramInfoLog(p));
+      this.defs[name] = d;
+      Object.defineProperty(this.p, name, { configurable: true, enumerable: true, get: () => this.finish(name) });
+    }
+    ready(name) {
+      const d = this.defs[name];
+      if (!d) return false;
+      if (d.prog || d.err) return true;
+      return !this.parallel || this.gl.getProgramParameter(d.p, this.parallel.COMPLETION_STATUS_KHR);
+    }
+    *whenReady() {
+      for (const n of arguments) while (!this.ready(n)) yield 0;
+      for (const n of arguments) this.finish(n);
+    }
+    finish(name) {
+      const d = this.defs[name];
+      if (d.prog) return d.prog;
+      if (d.err) throw d.err;
+      const gl = this.gl;
+      if (!gl.getProgramParameter(d.p, gl.LINK_STATUS) && !gl.isContextLost()) {
+        const logs = [];
+        for (const [sh, src, tag] of [[d.v, d.vs, 'vs'], [d.f, d.fs, 'fs']]) {
+          if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+            const numbered = (HEADER + src).split('\n').map((l, i) => i + 1 + ': ' + l).join('\n');
+            console.error('Shader error in ' + name + '.' + tag + ':\n' + gl.getShaderInfoLog(sh) + '\n' + numbered);
+            logs.push(tag + ': ' + gl.getShaderInfoLog(sh));
+          }
+        }
+        d.err = new Error('Program failed: ' + name + ' — ' + (logs.join(' ') || gl.getProgramInfoLog(d.p)));
+        throw d.err;
       }
       const u = {};
-      const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+      const n = gl.getProgramParameter(d.p, gl.ACTIVE_UNIFORMS);
       for (let i = 0; i < n; i++) {
-        const info = gl.getActiveUniform(p, i);
+        const info = gl.getActiveUniform(d.p, i);
         const key = info.name.replace(/\[0\]$/, '');
-        u[key] = { loc: gl.getUniformLocation(p, info.name), type: info.type, size: info.size };
+        u[key] = { loc: gl.getUniformLocation(d.p, info.name), type: info.type, size: info.size };
       }
-      return { p, u, name };
+      gl.deleteShader(d.v); gl.deleteShader(d.f);
+      d.prog = { p: d.p, u, name };
+      return d.prog;
     }
 
     buildPrograms() {
-      const P = this.p;
-      P.points = this.program('points', SH.pointsVS, SH.pointsFS);
-      P.stars = this.program('stars', SH.starsVS, SH.starsFS);
-      P.skyStars = this.program('skyStars', SH.skyStarsVS, SH.starsFS);
-      P.sprites = this.program('sprites', SH.spritesVS, SH.spritesFS);
-      P.lines = this.program('lines', SH.linesVS, SH.linesFS);
-      P.earth = this.program('earth', SH.impostorVS, SH.earthFS);
-      P.moon = this.program('moon', SH.impostorVS, SH.moonFS);
-      P.sun = this.program('sun', SH.impostorVS, SH.sunFS);
-      P.shell = this.program('shell', SH.impostorVS, SH.shellFS);
-      P.skyBake = this.program('skyBake', SH.fullVS, SH.skyBakeFS);
-      P.skyDraw = this.program('skyDraw', SH.fullVS, SH.skyDrawFS);
-      P.down = this.program('down', SH.fullVS, SH.downFS);
-      P.up = this.program('up', SH.fullVS, SH.upFS);
-      P.composite = this.program('composite', SH.fullVS, SH.compositeFS);
+      const D = (n, v, f) => this.define(n, v, f);
+      D('points', SH.pointsVS, SH.pointsFS);
+      D('stars', SH.starsVS, SH.starsFS);
+      D('skyStars', SH.skyStarsVS, SH.starsFS);
+      D('sprites', SH.spritesVS, SH.spritesFS);
+      D('lines', SH.linesVS, SH.linesFS);
+      D('earth', SH.earthVS, SH.earthFS);
+      D('moon', SH.impostorVS, SH.moonFS);
+      D('sun', SH.impostorVS, SH.sunFS);
+      D('shell', SH.impostorVS, SH.shellFS);
+      D('skyBake', SH.fullVS, SH.skyBakeFS);
+      D('skyDraw', SH.fullVS, SH.skyDrawFS);
+      D('down', SH.fullVS, SH.downFS);
+      D('up', SH.fullVS, SH.upFS);
+      D('composite', SH.fullVS, SH.compositeFS);
     }
 
     use(prog, uniforms) {
@@ -884,7 +1350,7 @@ void main(){
     // Draw helpers that always set every tunable uniform (GL keeps stale values otherwise).
     drawPoints(geo, cam, o) {
       if (!geo) return;
-      const u = Object.assign({ u_minPx: 1, u_maxPx: 24, u_gain: 1, u_sizeMul: 1, u_constFlux: 0,
+      const u = Object.assign({ u_minPx: 1, u_maxPx: 24, u_gain: 1, u_sizeMul: 1, u_constFlux: 0, u_twinkle: 0, u_time: this.time,
         u_fadeCenter: [0, 0, 0], u_fadeR0: 0, u_fadeR1: 0, u_slabDepth: 0, u_slabWidth: 0, u_mode: 0 }, o);
       u.u_view = cam.view; u.u_proj = cam.proj; u.u_pxScale = cam.pxScale;
       this.use(this.p.points, u);
@@ -902,6 +1368,15 @@ void main(){
       const u = Object.assign({ u_logRef: 0, u_gain: 1, u_minPx: 1, u_maxPx: 8, u_sizeK: 2, u_spikeK: 0, u_fadeNear: 0 }, o);
       u.u_view = cam.view; u.u_proj = cam.proj;
       this.use(this.p.stars, u);
+      geo.draw();
+    }
+    // Instanced sphere impostors (a SpriteSet: xyz | rgb ao | radius).
+    drawSpheres(geo, cam, o) {
+      if (!geo) return;
+      if (!this.defs.spheres) this.define('spheres', SH.spheresVS, SH.spheresFS);
+      const u = Object.assign({ u_minPx: 1, u_radMul: 1, u_gain: 1, u_opacity: 1, u_emit: 0.08, u_light: [-0.45, 0.6, 0.66], u_cullR: 0, u_nearFade: 0 }, o);
+      u.u_view = cam.view; u.u_proj = cam.proj; u.u_pxScale = cam.pxScale; u.u_focusD = cam.d;
+      this.use(this.p.spheres, u);
       geo.draw();
     }
     drawLines(geo, cam, o) {
@@ -932,12 +1407,22 @@ void main(){
       return new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
+          // GPUs that cannot hold the full map get a downscaled copy.
+          let src = img;
+          const lim = Math.min(this.maxTex, opts.maxSize || 16384);
+          if (img.width > lim || img.height > lim) {
+            const k = lim / Math.max(img.width, img.height);
+            const c = document.createElement('canvas');
+            c.width = Math.max(1, Math.floor(img.width * k)); c.height = Math.max(1, Math.floor(img.height * k));
+            c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+            src = c;
+          }
           const tex = gl.createTexture();
           gl.bindTexture(gl.TEXTURE_2D, tex);
           gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-          if (opts.gray) gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, gl.RED, gl.UNSIGNED_BYTE, img);
-          else if (opts.srgb) gl.texImage2D(gl.TEXTURE_2D, 0, gl.SRGB8_ALPHA8, gl.RGBA, gl.UNSIGNED_BYTE, img);
-          else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, img);
+          if (opts.gray) gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, gl.RED, gl.UNSIGNED_BYTE, src);
+          else if (opts.srgb) gl.texImage2D(gl.TEXTURE_2D, 0, gl.SRGB8_ALPHA8, gl.RGBA, gl.UNSIGNED_BYTE, src);
+          else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, src);
           gl.generateMipmap(gl.TEXTURE_2D);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -1083,6 +1568,7 @@ void main(){
       this.grain = 0.012;
       this.vignette = 0.45;
       this.fade = 1;
+      this.zoomBlur = 0;
     }
     tex(w, h, depth) {
       const gl = this.gfx.gl;
@@ -1181,7 +1667,7 @@ void main(){
       g.use(P.composite, {
         u_scene: 0, u_bloom: 1, u_bloomStrength: this.bloomStrength / Math.max(1, this.mips.length - 1),
         u_exposure: this.exposure, u_time: g.time, u_grain: this.grain, u_vignette: this.vignette,
-        u_res: [g.canvas.width, g.canvas.height], u_fade: this.fade,
+        u_res: [g.canvas.width, g.canvas.height], u_fade: this.fade, u_zoomBlur: this.zoomBlur,
       });
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.scene.tex);

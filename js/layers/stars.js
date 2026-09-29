@@ -133,6 +133,24 @@
       const lb = new CA.LineBuilder();
       for (const p of this.drops) lb.seg(p, [p[0], 0, p[2]], [0.55, 0.7, 1.0, 0.22], [0.55, 0.7, 1.0, 0.04]);
       this.dropLines = lb.build(gfx);
+
+      // Constellations in 3D: from the Sun they match the sky; from anywhere else
+      // they come apart, because their stars lie at very different distances.
+      const cb = new CA.LineBuilder();
+      for (const [name, strokes] of CA.CONSTELLATIONS) {
+        let sum = [0, 0, 0], cnt = 0;
+        for (const st of strokes) {
+          for (let i = 0; i + 1 < st.length; i++) {
+            const a = CA.starByName(st[i]), b = CA.starByName(st[i + 1]);
+            if (!a || !b) continue;
+            const pa = frames.radec(a[0], a[1], a[2]), pb = frames.radec(b[0], b[1], b[2]);
+            cb.seg(pa, pb, [0.5, 0.66, 1.0, 0.22], [0.5, 0.66, 1.0, 0.22]);
+            sum = v3.add(sum, v3.scale(v3.add(pa, pb), 0.5)); cnt++;
+          }
+        }
+        if (cnt) this.label(name, v3.scale(sum, 1 / cnt), [16.0, 16.5, 17.2, 17.8], { pri: 2, cls: 'region' });
+      }
+      this.figures = cb.build(gfx);
       this.ready = true;
     }
 
@@ -140,12 +158,16 @@
       const cam = this.cam, z = G.z, dpr = G.dpr;
       gfx.depth(false, false);
       gfx.blend('add');
-      for (const r of this.rings) {
-        const f = CA.fadeIn(r.fade, z);
-        if (f > 0) gfx.drawLines(r.geo, cam, { u_width: 1.0 * dpr, u_gain: op * f });
+      if (CA.showGuides) {
+        for (const r of this.rings) {
+          const f = CA.fadeIn(r.fade, z);
+          if (f > 0) gfx.drawLines(r.geo, cam, { u_width: 1.0 * dpr, u_gain: op * f });
+        }
+        const dF = CA.fadeIn([16.4, 16.9, 17.7, 18.1], z);
+        if (dF > 0) gfx.drawLines(this.dropLines, cam, { u_width: 1.0 * dpr, u_gain: op * dF });
       }
-      const dF = CA.fadeIn([16.4, 16.9, 17.7, 18.1], z);
-      if (dF > 0) gfx.drawLines(this.dropLines, cam, { u_width: 1.0 * dpr, u_gain: op * dF });
+      const cF = CA.fadeIn([15.4, 16.2, 17.3, 18.0], z);
+      if (cF > 0 && CA.showGuides) gfx.drawLines(this.figures, cam, { u_width: 1.0 * dpr, u_gain: op * cF });
 
       // Auto-exposure: a Sun-like star at the focus distance has fixed brightness.
       const T = this.tune;

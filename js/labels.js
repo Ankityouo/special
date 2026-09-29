@@ -75,6 +75,7 @@
             const nx = c[0] / c[3], ny = c[1] / c[3];
             if (nx < -1.05 || nx > 1.05 || ny < -1.05 || ny > 1.05) continue;
             if (this.occluded(l, L.cam, p)) continue;
+            if (l.hide && l.hide(p)) continue;
             const x = (nx * 0.5 + 0.5) * W, y = (0.5 - ny * 0.5) * H;
             const rpx = l.r ? (l.r * pxCss) / c[3] : 0;
             // Hide object labels once the object fills much of the screen.

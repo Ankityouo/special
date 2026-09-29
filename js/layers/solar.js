@@ -12,7 +12,7 @@
 
   class SolarLayer extends CA.Layer {
     constructor() {
-      super({ name: 'solar', unit: U.AU, fade: [-1e9, -1e9, 16.75, 17.5], bound: 1.1e5 });
+      super({ name: 'solar', unit: U.AU, fade: [-1.7, -1.0, 16.75, 17.5], bound: 1.1e5 });
     }
     home() { return CA.world.earthHelio; }
 
@@ -112,8 +112,9 @@
       this.oort = new CA.PointCloud(gfx, new Float32Array(oort));
       yield 0.7;
 
-      // ---- Sun glow and spacecraft
+      // ---- Sun glow, glare and spacecraft
       this.sunGlow = new CA.SpriteSet(gfx, new Float32Array([0, 0, 0, 1.0, 0.82, 0.58, 0, 1]));
+      this.sunGlare = new CA.SpriteSet(gfx, new Float32Array([0, 0, 0, 1.0, 0.88, 0.7, 3.7, 1]));
       const craft = [];
       for (const s of CA.SPACECRAFT) {
         const p = frames.radec(s[1], s[2], s[3]);
@@ -143,7 +144,7 @@
       this.ready = true;
     }
 
-    update() {
+    update(G) {
       const T = CA.world.T;
       const P = astro.PLANETS;
       if (!this.planetPos) this.planetPos = [];
@@ -151,7 +152,8 @@
         const p = astro.planetScene(P[i], T);
         this.planetPos[i] = p;
         const o = i * 8, c = P[i].color;
-        const bright = P[i].name === 'Earth' ? 3.2 : 2.4;
+        // Seen from Earth's own neighbourhood, Earth is not a dot in the sky.
+        const bright = P[i].name === 'Earth' ? (G.z > 8.8 ? 3.2 : 0) : 2.4;
         this.pData[o] = p[0]; this.pData[o + 1] = p[1]; this.pData[o + 2] = p[2];
         this.pData[o + 3] = c[0] * bright; this.pData[o + 4] = c[1] * bright; this.pData[o + 5] = c[2] * bright;
         this.pData[o + 6] = 0; this.pData[o + 7] = DOT[P[i].name];
@@ -190,12 +192,16 @@
       if (sunF > 0) {
         const near = 1 - CA.smoothstep(12.5, 15.5, z);
         gfx.drawSprites(this.sunGlow, cam, { u_fixedPx: (30 + 26 * near) * dpr, u_mode: 2, u_gain: (1.1 + 1.2 * near) * sunF });
+        // A lens's view of the Sun: spikes and a ragged corona, strongest up close.
+        const glare = CA.fadeIn([-1.2, -0.6, 14.5, 16.0], z) * sunF * (1 - 0.55 * CA.smoothstep(11.5, 14.5, z));
+        if (glare > 0) gfx.drawSprites(this.sunGlare, cam, { u_fixedPx: (90 + 230 * near) * dpr, u_mode: 4, u_gain: 0.6 * glare });
         gfx.drawImpostor(gfx.p.sun, Object.assign(gfx.camUniforms(cam), {
           u_center: [0, 0, 0], u_radius: 0.00465047, u_full: 0, u_intensity: 60, u_opacity: sunF,
         }));
       }
 
-      const plF = CA.fadeIn([9.2, 9.9, 14.4, 15.2], z);
+      // Planets: dots with orbits from space; wandering stars in the sky from the ground.
+      const plF = Math.max(CA.fadeIn([9.2, 9.9, 14.4, 15.2], z), CA.fadeIn([-1.2, -0.7, 5.8, 6.6], z) * 0.55 * (1 - 0.9 * (CA.world.daylight || 0)));
       if (plF > 0) {
         gl.bindBuffer(gl.ARRAY_BUFFER, this.planets.buf);
         gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.pData);

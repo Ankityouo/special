@@ -143,6 +143,82 @@
     ['Alpha Tucanae', 22.3083, -60.26, 2.86, 199, 'K3III', 0],
     ['Beta Hydri', 0.429, -77.254, 2.8, 24.3, 'G2IV', 0],
     ['Alpha Hydri', 1.9796, -61.57, 2.86, 71.8, 'F0V', 0],
+    // Fainter members that complete the constellation figures below.
+    ['Acrab', 16.0906, -19.805, 2.62, 400, 'B0.5V', 0],
+    ['Fang', 15.9809, -26.114, 2.89, 590, 'B1V', 0],
+    ['Alniyat', 16.3531, -25.593, 2.89, 700, 'B1III', 0],
+    ['Paikauhale', 16.598, -28.216, 2.82, 470, 'B0V', 0],
+    ['Xamidimura', 16.8645, -38.047, 3.08, 500, 'B1.5V', 0],
+    ['Zeta Scorpii', 16.9097, -42.361, 3.62, 132, 'K4III', 0],
+    ['Eta Scorpii', 17.2026, -43.239, 3.33, 73, 'F2V', 0],
+    ['Girtab', 17.7081, -39.03, 2.39, 480, 'B1.5III', 0],
+    ['Iota Scorpii', 17.7931, -40.127, 2.99, 1900, 'F2Ia', 0],
+    ['Chertan', 11.2373, 15.429, 3.33, 165, 'A2V', 0],
+    ['Adhafera', 10.2782, 23.417, 3.43, 274, 'F0III', 0],
+    ['Rasalas', 9.8794, 26.007, 3.88, 124, 'K2III', 0],
+    ['Algenubi', 9.7642, 23.774, 2.98, 247, 'G1II', 0],
+    ['Eta Leonis', 10.1222, 16.763, 3.48, 1300, 'A0Ib', 0],
+    ['Pherkad', 15.3455, 71.834, 3.0, 487, 'A3II', 0],
+    ['Yildun', 17.5369, 86.586, 4.35, 172, 'A1V', 0],
+    ['Epsilon Ursae Minoris', 16.7662, 82.037, 4.21, 347, 'G5III', 0],
+    ['Zeta Ursae Minoris', 15.7343, 77.794, 4.29, 370, 'A3V', 0],
+    ['Eta Ursae Minoris', 16.2918, 75.755, 4.95, 97, 'F5V', 0],
+    ['Sheliak', 18.8347, 33.363, 3.52, 960, 'B7II', 0],
+    ['Sulafat', 18.9824, 32.69, 3.25, 620, 'B9III', 0],
+    ['Delta Lyrae', 18.9084, 36.899, 4.3, 740, 'M4II', 0],
+    ['Zeta Lyrae', 18.7462, 37.605, 4.36, 150, 'A4m', 0],
+    ['Alshain', 19.9219, 6.407, 3.71, 45, 'G8IV', 0],
+    ['Delta Aquilae', 19.425, 3.115, 3.36, 50, 'F2IV', 0],
+    ['Okab', 19.0902, 13.863, 2.99, 83, 'A0V', 0],
+    ['Lambda Aquilae', 19.1041, -4.883, 3.43, 125, 'B9V', 0],
+    ['Seginus', 14.5346, 38.308, 3.03, 85, 'A7III', 0],
+    ['Nekkar', 15.0324, 40.391, 3.49, 225, 'G8III', 0],
+    ['Delta Bootis', 15.2584, 33.315, 3.47, 122, 'G8III', 0],
+    ['Rho Bootis', 14.5305, 30.371, 3.58, 149, 'K3III', 0],
+    ['Phi Sagittarii', 18.7609, -26.991, 3.17, 230, 'B8III', 0],
+    ['Tau Sagittarii', 19.1157, -27.67, 3.32, 120, 'K1III', 0],
+    ['Hassaleh', 4.9499, 33.166, 2.69, 490, 'K3II', 0],
+    ['Mahasim', 5.9954, 37.212, 2.62, 166, 'A0p', 0],
+    ['Mebsuta', 6.7322, 25.131, 2.98, 840, 'G8Ib', 0],
+    ['Wasat', 7.3354, 21.982, 3.53, 60, 'F0IV', 0],
+    ['Tejat', 6.3827, 22.514, 2.87, 230, 'M3III', 0],
+    ['Furud', 6.3386, -30.063, 3.02, 362, 'B2.5V', 0],
+    ['Gomeisa', 7.4525, 8.289, 2.89, 160, 'B8V', 0],
+    ['Minkar', 12.1687, -22.62, 3.0, 318, 'K2III', 0],
+  ];
+
+  // Stick figures joining the stars above (by name). Seen from the Sun they are the
+  // familiar shapes; seen from anywhere else they come apart, because their stars
+  // lie at very different distances.
+  // Star positions by name, for the stick figures below: [RA h, Dec deg, distance ly].
+  CA.starByName = function (name) {
+    if (!CA._starIndex) {
+      CA._starIndex = {};
+      for (const s of CA.BRIGHT_STARS) CA._starIndex[s[0]] = [s[1], s[2], s[4]];
+    }
+    return CA._starIndex[name];
+  };
+  CA.CONSTELLATIONS = [
+    ['Orion', [['Betelgeuse', 'Meissa', 'Bellatrix'], ['Betelgeuse', 'Alnitak', 'Alnilam', 'Mintaka', 'Bellatrix'], ['Alnitak', 'Saiph'], ['Mintaka', 'Rigel']]],
+    ['Ursa Major', [['Alkaid', 'Mizar', 'Alioth', 'Megrez', 'Phecda', 'Merak', 'Dubhe', 'Megrez']]],
+    ['Ursa Minor', [['Polaris', 'Yildun', 'Epsilon Ursae Minoris', 'Zeta Ursae Minoris', 'Kochab', 'Pherkad', 'Eta Ursae Minoris', 'Zeta Ursae Minoris']]],
+    ['Cassiopeia', [['Caph', 'Schedar', 'Navi', 'Ruchbah', 'Segin']]],
+    ['Cygnus', [['Deneb', 'Sadr', 'Albireo'], ['Aljanah', 'Sadr', 'Fawaris']]],
+    ['Lyra', [['Vega', 'Zeta Lyrae', 'Delta Lyrae', 'Sulafat', 'Sheliak', 'Zeta Lyrae']]],
+    ['Aquila', [['Tarazed', 'Altair', 'Alshain'], ['Altair', 'Delta Aquilae', 'Lambda Aquilae'], ['Delta Aquilae', 'Okab']]],
+    ['Leo', [['Regulus', 'Eta Leonis', 'Algieba', 'Adhafera', 'Rasalas', 'Algenubi'], ['Algieba', 'Zosma', 'Denebola', 'Chertan', 'Regulus'], ['Zosma', 'Chertan']]],
+    ['Scorpius', [['Acrab', 'Dschubba', 'Fang'], ['Dschubba', 'Alniyat', 'Antares', 'Paikauhale', 'Larawag', 'Xamidimura', 'Zeta Scorpii', 'Eta Scorpii', 'Sargas', 'Iota Scorpii', 'Girtab', 'Shaula', 'Lesath']]],
+    ['Sagittarius', [['Alnasl', 'Kaus Media', 'Kaus Borealis', 'Phi Sagittarii', 'Kaus Media', 'Kaus Australis', 'Alnasl'], ['Kaus Australis', 'Ascella', 'Phi Sagittarii', 'Nunki', 'Tau Sagittarii', 'Ascella']]],
+    ['Crux', [['Acrux', 'Gacrux'], ['Mimosa', 'Imai']]],
+    ['Canis Major', [['Mirzam', 'Sirius', 'Wezen', 'Aludra'], ['Wezen', 'Adhara', 'Furud']]],
+    ['Canis Minor', [['Procyon', 'Gomeisa']]],
+    ['Gemini', [['Castor', 'Pollux'], ['Castor', 'Mebsuta', 'Tejat'], ['Pollux', 'Wasat', 'Alhena']]],
+    ['Auriga', [['Capella', 'Menkalinan', 'Mahasim', 'Elnath', 'Hassaleh', 'Capella']]],
+    ['Boötes', [['Arcturus', 'Izar', 'Delta Bootis', 'Nekkar', 'Seginus', 'Rho Bootis', 'Arcturus'], ['Arcturus', 'Muphrid']]],
+    ['Pegasus', [['Markab', 'Scheat', 'Alpheratz', 'Algenib', 'Markab']]],
+    ['Andromeda', [['Alpheratz', 'Mirach', 'Almach']]],
+    ['Corvus', [['Gienah', 'Algorab', 'Kraz', 'Minkar', 'Gienah']]],
+    ['Centaurus', [['Rigil Kentaurus', 'Hadar']]],
   ];
 
   // ------------------------------------------------------------------ nearby & famous faint stars
@@ -277,12 +353,68 @@
   // The Great Attractor sits near the Norma Cluster.
   CA.GREAT_ATTRACTOR = { l: 320.0, b: 0.0, d: 200 };
 
+  // Famous galaxies beyond the Local Group.
+  // [name, RA h, Dec deg, distance Mly, kind, note]
+  CA.GALAXIES = [
+    ['M87', 12.5137, 12.391, 53.5, 'elliptical', 'Its black hole was the first ever photographed'],
+    ['Sombrero Galaxy', 12.6665, -11.623, 31, 'spiral', ''],
+    ['Whirlpool Galaxy', 13.498, 47.195, 28, 'spiral', ''],
+    ['Pinwheel Galaxy', 14.0535, 54.349, 21, 'spiral', ''],
+    ['Centaurus A', 13.4243, -43.019, 12.4, 'elliptical', 'Radio jets a million light-years long'],
+    ["Bode's Galaxy", 9.9258, 69.065, 11.8, 'spiral', ''],
+    ['Cigar Galaxy', 9.931, 69.68, 11.4, 'starburst', 'Forming stars ten times faster than the Milky Way'],
+    ['Sculptor Galaxy', 0.7925, -25.288, 11.4, 'spiral', ''],
+    ['Southern Pinwheel', 13.6169, -29.866, 15, 'spiral', ''],
+    ['Black Eye Galaxy', 12.9456, 21.683, 17.3, 'spiral', ''],
+  ];
+
   // ------------------------------------------------------------------ narrative
-  // z = log10 of camera distance to focus (meters). addr = line for the cosmic address.
+  // z = log10 of camera distance to focus (meters). addr = line for the cosmic address;
+  // at = the chapter whose address line stays lit here. Sorted by z, smallest first.
   CA.CHAPTERS = [
     {
+      id: 'planck', z: -34.35, title: 'Planck Length', addr: '…', speculative: true, end: true,
+      text: 'At 1.6 × 10⁻³⁵ m, gravity and quantum physics collide. Space itself may froth into a foam, or be woven from strings or loops. No one knows. The map ends here too.',
+    },
+    {
+      id: 'uncharted', z: -19.3, title: 'Uncharted', kicker: 'Beyond measurement', at: 'planck', end: true,
+      text: 'The Large Hadron Collider finds no structure down to about 10⁻¹⁹ m: quarks and electrons still look like points. No experiment has ever seen anything smaller.',
+    },
+    {
+      id: 'proton', z: -14.6, title: 'Proton', addr: 'Proton',
+      text: 'Two up quarks and a down quark, bound by gluons in a seething sea of particles that flicker in and out of existence. Only about 1% of the proton’s mass is the quarks themselves; the rest is energy.',
+    },
+    {
+      id: 'nucleus', z: -13.85, title: 'Carbon Nucleus', addr: 'Nucleus',
+      text: 'Six protons and six neutrons, held by the strongest force in nature. If the atom were a stadium, its nucleus would be a pea at the center, yet it carries 99.97% of the atom’s mass.',
+    },
+    {
+      id: 'atom', z: -9.4, title: 'Carbon Atom', addr: 'Carbon atom',
+      text: 'Six electrons: not tiny planets in orbit but a cloud of probability a few tenths of a nanometer across. Every living thing is built around carbon.',
+    },
+    {
+      id: 'dna', z: -7.7, title: 'DNA', addr: 'DNA',
+      text: 'Each of your cells packs two meters of DNA, wound around protein spools called histones. The double helix is two nanometers wide and spells out your genome in four letters.',
+    },
+    {
+      id: 'cell', z: -4.3, title: 'Cell', addr: 'Cell',
+      text: 'One of your 37 trillion cells, about 30 micrometers wide. Inside: mitochondria that make its energy, folded membranes that build its proteins, and a nucleus holding the instructions for all of you.',
+    },
+    {
+      id: 'skin', z: -2.4, title: 'Fingertip', at: 'you',
+      text: 'Ridges half a millimeter apart, dotted with sweat pores, trace a pattern no one else has ever had. Your skin sheds some 40,000 cells a minute.',
+    },
+    {
+      id: 'you', z: 0.45, title: 'You', addr: 'You',
+      text: 'About 1.7 meters of you: 37 trillion cells made of 7 octillion atoms, standing under the sky your part of Earth has right now.',
+    },
+    {
+      id: 'edge', z: 5.55, title: 'Edge of Space', at: 'earth',
+      text: 'The International Space Station flies about 400 km up. From here the air is a thin blue line: half of it lies within 5.5 km of the ground.',
+    },
+    {
       id: 'earth', z: 7.42, title: 'Earth', addr: 'Earth',
-      text: 'Home to everyone you have ever met. 12,742 km across, lit exactly as the Sun lights it at this moment.',
+      text: 'Home to everyone you have ever met. 12,742 km across, lit exactly as the Sun lights it at this moment, and ringed by more than 10,000 working satellites.',
     },
     {
       id: 'moon', z: 9.05, title: 'Earth and Moon',
@@ -333,17 +465,17 @@
       text: 'At the largest scales, galaxies trace filaments and walls around voids hundreds of millions of light-years across.',
     },
     {
-      id: 'observable', z: 27.3, title: 'Observable Universe', addr: 'Observable Universe',
+      id: 'observable', z: 27.3, title: 'Observable Universe', addr: 'Observable Universe', end: true,
       text: 'Everything whose light has had time to reach us: a sphere 93 billion light-years across, centered on you. Its edge is the oldest light there is.',
     },
     {
-      id: 'beyond', z: 29.3, title: 'Beyond', addr: '…',
+      id: 'beyond', z: 29.3, title: 'Beyond', addr: '…', end: true,
       text: 'No light from here has reached us, so no one knows. The universe may go on forever, or be one bubble among many. The map ends here.',
       speculative: true,
     },
   ];
 
-  CA.Z_MIN = 7.02;
+  CA.Z_MIN = -34.8;
   CA.Z_MAX = 30.2;
 
   // ------------------------------------------------------------------ time zone → approximate location

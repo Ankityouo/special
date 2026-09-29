@@ -207,6 +207,30 @@
   };
   CA.quat = quat;
 
+  // Blend two orthonormal camera bases {r, u, b}.
+  CA.slerpBasis = function (A, B, t) {
+    if (t <= 0) return A;
+    if (t >= 1) return B;
+    const q = quat.slerp(quat.fromBasis(A.r, A.u, A.b), quat.fromBasis(B.r, B.u, B.b), t);
+    const M = quat.toBasis(q);
+    return { r: M[0], u: M[1], b: M[2] };
+  };
+
+  // 32-bit integer hash (lowbias32). hash2i matches the GLSL hash2i() bit for bit, so
+  // JavaScript can find the same procedural cells a shader draws.
+  function hashu(x) {
+    x = (x ^ (x >>> 16)) >>> 0;
+    x = Math.imul(x, 0x7feb352d) >>> 0;
+    x = (x ^ (x >>> 15)) >>> 0;
+    x = Math.imul(x, 0x846ca68b) >>> 0;
+    return (x ^ (x >>> 16)) >>> 0;
+  }
+  CA.hashu = hashu;
+  CA.hash2i = function (i, k, seed) {
+    const h = hashu((Math.imul(i | 0, 1597334677) ^ Math.imul(k | 0, 0x3c6ef372) ^ (seed >>> 0)) >>> 0);
+    return (h >>> 8) / 16777216;
+  };
+
   // ---------------------------------------------------------------- random
   function mulberry32(seed) {
     let a = seed >>> 0;
@@ -511,9 +535,31 @@
   };
   CA.fmt = fmt;
 
+  // Below a meter, SI prefixes down to yocto; smaller than that, count Planck lengths.
+  const SMALL = [
+    [1e-2, 1e-2, 'cm'], [1e-3, 1e-3, 'mm'], [1e-6, 1e-6, 'µm'], [1e-9, 1e-9, 'nm'], [1e-12, 1e-12, 'pm'],
+    [1e-15, 1e-15, 'fm'], [1e-18, 1e-18, 'attometers'], [1e-21, 1e-21, 'zeptometers'], [1e-24, 1e-24, 'yoctometers'],
+  ];
+  U.PLANCK = 1.616255e-35;
+  U.PLANCK_T = 5.391247e-44;
+  // "3 million", "1.2 billion": large counts in words.
+  fmt.words = function (n) {
+    const w = [[1e15, 'quadrillion'], [1e12, 'trillion'], [1e9, 'billion'], [1e6, 'million']];
+    for (const [v, s] of w) if (n >= v) return fmt.sig(n / v, 3) + ' ' + s;
+    return fmt.sig(n, 3);
+  };
+
   // A human-readable length for a size in meters.
   CA.humanLength = function (m) {
     const ly = m / U.LY;
+    if (m < 1e-24) {
+      const p = m / U.PLANCK;
+      return (p < 1e6 ? fmt.sig(p, 2) : fmt.words(p)) + (p < 1.95 && p >= 0.95 ? ' Planck length' : ' Planck lengths');
+    }
+    if (m < 1) {
+      for (const [lim, unit, name] of SMALL) if (m >= lim) return fmt.sig(m / unit, 3) + ' ' + name;
+    }
+    if (m < 1e3) return fmt.sig(m, 3) + ' m';
     if (m < 1e6) return fmt.sig(m / 1e3, 3) + ' km';
     if (m < 1e9) return fmt.int(m / 1e3) + ' km';
     if (m < 0.1 * U.AU) return fmt.sig(m / 1e9, 3) + ' million km';
@@ -527,7 +573,16 @@
   // How long light takes to cross a distance in meters.
   CA.lightTime = function (m) {
     const s = m / U.C;
-    if (s < 1) return fmt.sig(s * 1000, 2) + ' milliseconds';
+    if (s < 1e-30) {
+      const p = s / U.PLANCK_T;
+      return (p < 1e6 ? fmt.sig(p, 2) : fmt.words(p)) + (p < 1.95 && p >= 0.95 ? ' Planck time' : ' Planck times');
+    }
+    const tiny = [[1e-3, 1e-3, 'milliseconds'], [1e-6, 1e-6, 'microseconds'], [1e-9, 1e-9, 'nanoseconds'], [1e-12, 1e-12, 'picoseconds'],
+      [1e-15, 1e-15, 'femtoseconds'], [1e-18, 1e-18, 'attoseconds'], [1e-21, 1e-21, 'zeptoseconds'], [1e-24, 1e-24, 'yoctoseconds'],
+      [1e-27, 1e-27, 'rontoseconds'], [1e-30, 1e-30, 'quectoseconds']];
+    if (s < 1) {
+      for (const [lim, unit, name] of tiny) if (s >= lim) return fmt.sig(s / unit, 2) + ' ' + name;
+    }
     if (s < 60) return fmt.sig(s, 2) + ' seconds';
     if (s < 3600) return fmt.sig(s / 60, 2) + ' minutes';
     if (s < 86400 * 2) return fmt.sig(s / 3600, 2) + ' hours';
